@@ -73,7 +73,11 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: 'stable'
       - run: flutter pub get
-      - run: flutter build apk --release
+      - name: Build APK (nightly)
+        run: |
+          flutter build apk --release \
+            --dart-define=UPDATE_CHANNEL=nightly \
+            --dart-define=GIT_COMMIT=${{ github.sha }}
       - name: Verify APK exists
         run: |
           if [ ! -f "build/app/outputs/flutter-apk/app-release.apk" ]; then
@@ -98,7 +102,11 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: 'stable'
       - run: flutter pub get
-      - run: flutter build ios --release --no-codesign
+      - name: Build iOS (nightly)
+        run: |
+          flutter build ios --release --no-codesign \
+            --dart-define=UPDATE_CHANNEL=nightly \
+            --dart-define=GIT_COMMIT=${{ github.sha }}
       - name: Create IPA
         run: |
           cd build/ios/iphoneos
@@ -122,7 +130,11 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: 'stable'
       - run: flutter pub get
-      - run: flutter build macos --release
+      - name: Build macOS (nightly)
+        run: |
+          flutter build macos --release \
+            --dart-define=UPDATE_CHANNEL=nightly \
+            --dart-define=GIT_COMMIT=${{ github.sha }}
       - name: Create DMG
         run: |
           brew install create-dmg || true
@@ -155,7 +167,11 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: 'stable'
       - run: flutter pub get
-      - run: flutter build windows --release
+      - name: Build Windows (nightly)
+        run: |
+          flutter build windows --release `
+            --dart-define=UPDATE_CHANNEL=nightly `
+            --dart-define=GIT_COMMIT=${{ github.sha }}
       - name: Bundle VC++ Runtime DLLs
         shell: pwsh
         run: |
@@ -192,7 +208,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libstdc++-12-dev libsecret-1-dev libfuse2
       - run: flutter pub get
-      - run: flutter build linux --release
+      - name: Build Linux (nightly)
+        run: |
+          flutter build linux --release \
+            --dart-define=UPDATE_CHANNEL=nightly \
+            --dart-define=GIT_COMMIT=${{ github.sha }}
       - name: Create AppImage
         run: |
           wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage

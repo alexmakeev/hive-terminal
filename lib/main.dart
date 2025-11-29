@@ -11,6 +11,12 @@ import 'features/workspace/workspace_page.dart';
 /// Current app version - update this on each release
 const String appVersion = '0.3.4';
 
+/// Current commit SHA (set by CI for nightly builds)
+const String appCommit = String.fromEnvironment('GIT_COMMIT', defaultValue: '');
+
+/// Update channel: 'stable' (default) or 'nightly'
+const String updateChannelStr = String.fromEnvironment('UPDATE_CHANNEL', defaultValue: 'stable');
+
 /// GitHub repository for updates
 const String githubOwner = 'alexmakeev';
 const String githubRepo = 'hive-terminal';
@@ -70,12 +76,23 @@ class _HiveTerminalAppState extends State<HiveTerminalApp> {
     super.initState();
     logger.log('HiveTerminalApp.initState()');
 
+    final updateChannel = updateChannelStr == 'nightly'
+        ? UpdateChannel.nightly
+        : UpdateChannel.stable;
+
+    logger.log('Update channel: $updateChannelStr');
+    if (appCommit.isNotEmpty) {
+      logger.log('Commit: $appCommit');
+    }
+
     _updateService = UpdateService(
-      const UpdateConfig(
+      UpdateConfig(
         owner: githubOwner,
         repo: githubRepo,
         currentVersion: appVersion,
-        checkInterval: Duration(hours: 24),
+        currentCommit: appCommit.isNotEmpty ? appCommit : null,
+        checkInterval: const Duration(hours: 24),
+        channel: updateChannel,
       ),
     );
 
@@ -137,19 +154,33 @@ class _HiveTerminalAppState extends State<HiveTerminalApp> {
     final context = _navigatorKey.currentContext;
     if (context == null) return;
 
+    final versionInfo = appCommit.isNotEmpty
+        ? '$appVersion (${appCommit.substring(0, 7)})'
+        : appVersion;
+    final channelInfo = updateChannelStr == 'nightly' ? ' [NIGHTLY]' : '';
+
     showAboutDialog(
       context: context,
-      applicationName: 'Hive Terminal',
-      applicationVersion: appVersion,
-      applicationIcon: const Icon(
+      applicationName: 'Hive Terminal$channelInfo',
+      applicationVersion: versionInfo,
+      applicationIcon: Icon(
         Icons.hive,
         size: 48,
-        color: Color(0xFFFF9800),
+        color: updateChannelStr == 'nightly'
+            ? const Color(0xFF4CAF50)  // Green for nightly
+            : const Color(0xFFFF9800), // Orange for stable
       ),
       children: [
         const Text('Mobile terminal for managing AI agents.'),
         const SizedBox(height: 16),
         const Text('SSH client with AI CLI integration.'),
+        if (updateChannelStr == 'nightly') ...[
+          const SizedBox(height: 16),
+          const Text(
+            'This is a nightly build for testing.',
+            style: TextStyle(color: Colors.orange, fontWeight: FontWeight.bold),
+          ),
+        ],
         const SizedBox(height: 16),
         Text(
           'Log file: ${logger.logFilePath ?? "not available"}',
@@ -163,18 +194,24 @@ class _HiveTerminalAppState extends State<HiveTerminalApp> {
     final context = _navigatorKey.currentContext;
     if (context == null) return;
 
+    final currentVersionText = appCommit.isNotEmpty
+        ? '$appVersion (${appCommit.substring(0, 7)})'
+        : appVersion;
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Update Available'),
+        title: Text(update.isNightly ? 'Nightly Build Available' : 'Update Available'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Version ${update.version} is available.'),
+            Text(update.isNightly
+                ? 'Build ${update.version} is available.'
+                : 'Version ${update.version} is available.'),
             const SizedBox(height: 8),
             Text(
-              'Current version: $appVersion',
+              'Current: $currentVersionText',
               style: Theme.of(context).textTheme.bodySmall,
             ),
             if (update.releaseNotes.isNotEmpty) ...[
