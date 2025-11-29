@@ -1,0 +1,146 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  FLUTTER_VERSION: '3.38.x'
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+      - run: flutter pub get
+      - run: flutter build apk --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+
+  build-ios:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+      - run: flutter pub get
+      - run: flutter build ios --release --no-codesign
+      - name: Create IPA
+        run: |
+          cd build/ios/iphoneos
+          mkdir Payload
+          cp -r Runner.app Payload/
+          zip -r ../hive-terminal-ios.ipa Payload
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-ipa
+          path: build/ios/hive-terminal-ios.ipa
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+      - run: flutter pub get
+      - run: flutter build macos --release
+      - name: Create DMG
+        run: |
+          brew install create-dmg || true
+          create-dmg \
+            --volname "Hive Terminal" \
+            --window-pos 200 120 \
+            --window-size 600 400 \
+            --icon-size 100 \
+            --app-drop-link 450 185 \
+            build/macos/hive-terminal.dmg \
+            build/macos/Build/Products/Release/hive_terminal.app || \
+          # Fallback: just zip the app
+          (cd build/macos/Build/Products/Release && zip -r ../../../hive-terminal-macos.zip hive_terminal.app)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-app
+          path: |
+            build/macos/hive-terminal.dmg
+            build/macos/hive-terminal-macos.zip
+          if-no-files-found: warn
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+      - run: flutter pub get
+      - run: flutter build windows --release
+      - name: Create ZIP
+        run: Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath build\windows\hive-terminal-windows.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-zip
+          path: build/windows/hive-terminal-windows.zip
+
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libstdc++-12-dev
+      - run: flutter pub get
+      - run: flutter build linux --release
+      - name: Create tarball
+        run: |
+          cd build/linux/x64/release/bundle
+          tar -czvf ../../../hive-terminal-linux.tar.gz *
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-tarball
+          path: build/linux/x64/release/hive-terminal-linux.tar.gz
+
+  create-release:
+    needs: [build-android, build-ios, build-macos, build-windows, build-linux]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Display artifacts
+        run: ls -R artifacts
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            artifacts/android-apk/app-release.apk
+            artifacts/ios-ipa/hive-terminal-ios.ipa
+            artifacts/macos-app/*
+            artifacts/windows-zip/hive-terminal-windows.zip
+            artifacts/linux-tarball/hive-terminal-linux.tar.gz
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
