@@ -35,17 +35,23 @@ class UpdateInfo {
     required this.releaseNotes,
     required this.publishedAt,
   });
+
+  @override
+  String toString() => 'UpdateInfo(version: $version, downloadUrl: $downloadUrl)';
 }
 
 /// Service for checking and handling app updates from GitHub Releases
 class UpdateService {
   final UpdateConfig config;
+  final http.Client? httpClient;
   Timer? _periodicTimer;
 
   static const String _lastCheckKey = 'update_last_check';
   static const String _skippedVersionKey = 'update_skipped_version';
 
-  UpdateService(this.config);
+  UpdateService(this.config, {this.httpClient});
+
+  http.Client get _client => httpClient ?? http.Client();
 
   /// Check for updates on GitHub Releases
   Future<UpdateInfo?> checkForUpdate() async {
@@ -54,7 +60,7 @@ class UpdateService {
         'https://api.github.com/repos/${config.owner}/${config.repo}/releases/latest',
       );
 
-      final response = await http.get(
+      final response = await _client.get(
         url,
         headers: {'Accept': 'application/vnd.github.v3+json'},
       );
@@ -65,71 +71,88 @@ class UpdateService {
       }
 
       final data = json.decode(response.body) as Map<String, dynamic>;
-      final tagName = data['tag_name'] as String?;
-
-      if (tagName == null) return null;
-
-      // Remove 'v' prefix if present
-      final latestVersion = tagName.startsWith('v')
-          ? tagName.substring(1)
-          : tagName;
-
-      // Compare versions
-      if (!_isNewerVersion(latestVersion, config.currentVersion)) {
-        return null;
-      }
-
-      // Check if user skipped this version
-      final prefs = await SharedPreferences.getInstance();
-      final skippedVersion = prefs.getString(_skippedVersionKey);
-      if (skippedVersion == latestVersion) {
-        return null;
-      }
-
-      // Find download URL for current platform
-      final downloadUrl = _getDownloadUrl(data);
-      if (downloadUrl == null) {
-        // Fallback to release page
-        return UpdateInfo(
-          version: latestVersion,
-          downloadUrl: data['html_url'] as String? ??
-              'https://github.com/${config.owner}/${config.repo}/releases/latest',
-          releaseNotes: data['body'] as String? ?? '',
-          publishedAt: DateTime.parse(data['published_at'] as String),
-        );
-      }
-
-      return UpdateInfo(
-        version: latestVersion,
-        downloadUrl: downloadUrl,
-        releaseNotes: data['body'] as String? ?? '',
-        publishedAt: DateTime.parse(data['published_at'] as String),
-      );
+      return _parseReleaseData(data, checkSkipped: true);
     } catch (e) {
       debugPrint('Error checking for updates: $e');
       return null;
     }
   }
 
+  /// Force check for updates (ignores interval and skipped version)
+  Future<UpdateInfo?> forceCheckForUpdate() async {
+    try {
+      final url = Uri.parse(
+        'https://api.github.com/repos/${config.owner}/${config.repo}/releases/latest',
+      );
+
+      final response = await _client.get(
+        url,
+        headers: {'Accept': 'application/vnd.github.v3+json'},
+      );
+
+      if (response.statusCode != 200) {
+        debugPrint('Failed to check for updates: ${response.statusCode}');
+        return null;
+      }
+
+      final data = json.decode(response.body) as Map<String, dynamic>;
+      return _parseReleaseData(data, checkSkipped: false);
+    } catch (e) {
+      debugPrint('Error checking for updates: $e');
+      return null;
+    }
+  }
+
+  /// Parse release data from GitHub API response
+  Future<UpdateInfo?> _parseReleaseData(
+    Map<String, dynamic> data, {
+    required bool checkSkipped,
+  }) async {
+    final tagName = data['tag_name'] as String?;
+    if (tagName == null) return null;
+
+    // Remove 'v' prefix if present
+    final latestVersion = tagName.startsWith('v')
+        ? tagName.substring(1)
+        : tagName;
+
+    // Compare versions
+    if (!isNewerVersion(latestVersion, config.currentVersion)) {
+      return null;
+    }
+
+    // Check if user skipped this version
+    if (checkSkipped) {
+      final prefs = await SharedPreferences.getInstance();
+      final skippedVersion = prefs.getString(_skippedVersionKey);
+      if (skippedVersion == latestVersion) {
+        return null;
+      }
+    }
+
+    // Find download URL for current platform
+    final downloadUrl = getDownloadUrl(data);
+
+    return UpdateInfo(
+      version: latestVersion,
+      downloadUrl: downloadUrl ?? data['html_url'] as String? ??
+          'https://github.com/${config.owner}/${config.repo}/releases/latest',
+      releaseNotes: data['body'] as String? ?? '',
+      publishedAt: DateTime.parse(data['published_at'] as String),
+    );
+  }
+
   /// Get platform-specific download URL from release assets
-  String? _getDownloadUrl(Map<String, dynamic> releaseData) {
+  /// Made public for testing
+  @visibleForTesting
+  String? getDownloadUrl(Map<String, dynamic> releaseData) {
     final assets = releaseData['assets'] as List<dynamic>?;
     if (assets == null || assets.isEmpty) return null;
 
-    String pattern;
-    if (Platform.isMacOS) {
-      pattern = '.dmg';
-    } else if (Platform.isWindows) {
-      pattern = '-windows.zip';
-    } else if (Platform.isLinux) {
-      pattern = '-linux.tar.gz';
-    } else if (Platform.isAndroid) {
-      pattern = '.apk';
-    } else if (Platform.isIOS) {
-      // iOS uses App Store, return release page
+    final pattern = getPlatformPattern();
+    if (pattern == null) {
+      // Unknown platform, fallback to release page
       return releaseData['html_url'] as String?;
-    } else {
-      return null;
     }
 
     for (final asset in assets) {
@@ -143,8 +166,28 @@ class UpdateService {
     return releaseData['html_url'] as String?;
   }
 
+  /// Get the file pattern for current platform
+  /// Made public for testing
+  @visibleForTesting
+  String? getPlatformPattern() {
+    if (Platform.isMacOS) {
+      return '.dmg';
+    } else if (Platform.isWindows) {
+      return '-windows.zip';
+    } else if (Platform.isLinux) {
+      return '-linux.tar.gz';
+    } else if (Platform.isAndroid) {
+      return '.apk';
+    } else if (Platform.isIOS) {
+      return null; // iOS uses App Store
+    }
+    return null;
+  }
+
   /// Compare semantic versions
-  bool _isNewerVersion(String latest, String current) {
+  /// Made public for testing
+  @visibleForTesting
+  static bool isNewerVersion(String latest, String current) {
     try {
       final latestParts = latest.split('.').map(int.parse).toList();
       final currentParts = current.split('.').map(int.parse).toList();
@@ -183,6 +226,12 @@ class UpdateService {
     await prefs.setString(_skippedVersionKey, version);
   }
 
+  /// Clear skipped version
+  Future<void> clearSkippedVersion() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_skippedVersionKey);
+  }
+
   /// Record that we checked for updates
   Future<void> recordCheck() async {
     final prefs = await SharedPreferences.getInstance();
@@ -219,54 +268,6 @@ class UpdateService {
 
     if (update != null) {
       onUpdateAvailable(update);
-    }
-  }
-
-  /// Force check for updates (ignores interval and skipped version)
-  Future<UpdateInfo?> forceCheckForUpdate() async {
-    try {
-      final url = Uri.parse(
-        'https://api.github.com/repos/${config.owner}/${config.repo}/releases/latest',
-      );
-
-      final response = await http.get(
-        url,
-        headers: {'Accept': 'application/vnd.github.v3+json'},
-      );
-
-      if (response.statusCode != 200) {
-        debugPrint('Failed to check for updates: ${response.statusCode}');
-        return null;
-      }
-
-      final data = json.decode(response.body) as Map<String, dynamic>;
-      final tagName = data['tag_name'] as String?;
-
-      if (tagName == null) return null;
-
-      // Remove 'v' prefix if present
-      final latestVersion = tagName.startsWith('v')
-          ? tagName.substring(1)
-          : tagName;
-
-      // Compare versions (skip check for skipped version)
-      if (!_isNewerVersion(latestVersion, config.currentVersion)) {
-        return null;
-      }
-
-      // Find download URL for current platform
-      final downloadUrl = _getDownloadUrl(data);
-
-      return UpdateInfo(
-        version: latestVersion,
-        downloadUrl: downloadUrl ?? data['html_url'] as String? ??
-            'https://github.com/${config.owner}/${config.repo}/releases/latest',
-        releaseNotes: data['body'] as String? ?? '',
-        publishedAt: DateTime.parse(data['published_at'] as String),
-      );
-    } catch (e) {
-      debugPrint('Error checking for updates: $e');
-      return null;
     }
   }
 
