@@ -1,10 +1,71 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
+import 'dart:io';
 
 import 'package:dartssh2/dartssh2.dart';
 import 'package:flutter/foundation.dart';
 import 'package:xterm/xterm.dart';
+
+/// Popular AI CLI commands with descriptions
+class AiCliCommand {
+  final String command;
+  final String name;
+  final String description;
+
+  const AiCliCommand({
+    required this.command,
+    required this.name,
+    required this.description,
+  });
+
+  static const List<AiCliCommand> suggestions = [
+    AiCliCommand(
+      command: 'claude',
+      name: 'Claude Code',
+      description: 'Anthropic Claude AI coding assistant',
+    ),
+    AiCliCommand(
+      command: 'claude --dangerously-skip-permissions',
+      name: 'Claude Code (auto)',
+      description: 'Claude Code with auto-approve permissions',
+    ),
+    AiCliCommand(
+      command: 'aider',
+      name: 'Aider',
+      description: 'AI pair programming in terminal',
+    ),
+    AiCliCommand(
+      command: 'aider --model claude-3-5-sonnet',
+      name: 'Aider (Claude)',
+      description: 'Aider with Claude Sonnet model',
+    ),
+    AiCliCommand(
+      command: 'gemini',
+      name: 'Gemini CLI',
+      description: 'Google Gemini AI agent',
+    ),
+    AiCliCommand(
+      command: 'codex',
+      name: 'Codex CLI',
+      description: 'OpenAI Codex coding agent',
+    ),
+    AiCliCommand(
+      command: 'aichat',
+      name: 'AIChat',
+      description: 'Multi-LLM CLI (OpenAI, Claude, Gemini, Ollama)',
+    ),
+    AiCliCommand(
+      command: 'gpt',
+      name: 'GPT CLI',
+      description: 'ChatGPT command line interface',
+    ),
+    AiCliCommand(
+      command: 'gh copilot',
+      name: 'GitHub Copilot',
+      description: 'GitHub Copilot in terminal',
+    ),
+  ];
+}
 
 /// Connection configuration
 class ConnectionConfig {
@@ -16,6 +77,8 @@ class ConnectionConfig {
   final String? password;
   final String? privateKey;
   final String? passphrase;
+  final String? startupCommand;
+  final bool useDefaultKeys;
 
   const ConnectionConfig({
     required this.id,
@@ -26,6 +89,8 @@ class ConnectionConfig {
     this.password,
     this.privateKey,
     this.passphrase,
+    this.startupCommand,
+    this.useDefaultKeys = true,
   });
 
   Map<String, dynamic> toJson() => {
@@ -34,6 +99,8 @@ class ConnectionConfig {
         'host': host,
         'port': port,
         'username': username,
+        'startupCommand': startupCommand,
+        'useDefaultKeys': useDefaultKeys,
       };
 
   factory ConnectionConfig.fromJson(Map<String, dynamic> json) {
@@ -43,6 +110,8 @@ class ConnectionConfig {
       host: json['host'] as String,
       port: json['port'] as int? ?? 22,
       username: json['username'] as String,
+      startupCommand: json['startupCommand'] as String?,
+      useDefaultKeys: json['useDefaultKeys'] as bool? ?? true,
     );
   }
 }
@@ -67,6 +136,7 @@ class SshSession {
   String? _lastError;
   Timer? _reconnectTimer;
   bool _shouldReconnect = true;
+  bool _startupCommandSent = false;
 
   SshSession({
     required this.config,
@@ -83,6 +153,40 @@ class SshSession {
     onStateChange?.call(newState);
   }
 
+  /// Load default SSH keys from ~/.ssh/
+  Future<List<SSHKeyPair>> _loadDefaultKeys() async {
+    final keys = <SSHKeyPair>[];
+
+    try {
+      final home = Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'];
+      if (home == null) return keys;
+
+      final sshDir = Directory('$home/.ssh');
+      if (!await sshDir.exists()) return keys;
+
+      // Common key file names
+      final keyNames = ['id_ed25519', 'id_rsa', 'id_ecdsa'];
+
+      for (final name in keyNames) {
+        final keyFile = File('${sshDir.path}/$name');
+        if (await keyFile.exists()) {
+          try {
+            final keyContent = await keyFile.readAsString();
+            final keyPairs = SSHKeyPair.fromPem(keyContent, config.passphrase);
+            keys.addAll(keyPairs);
+            debugPrint('Loaded SSH key: $name');
+          } catch (e) {
+            debugPrint('Failed to load key $name: $e');
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Error loading default keys: $e');
+    }
+
+    return keys;
+  }
+
   /// Connect to SSH server
   Future<void> connect() async {
     if (_state == SessionState.connecting || _state == SessionState.connected) {
@@ -90,6 +194,7 @@ class SshSession {
     }
 
     _shouldReconnect = true;
+    _startupCommandSent = false;
     _setState(SessionState.connecting);
     _lastError = null;
 
@@ -98,18 +203,36 @@ class SshSession {
 
       final socket = await SSHSocket.connect(config.host, config.port);
 
+      // Build identities list
+      final identities = <SSHKeyPair>[];
+
+      // Add explicit private key if provided
+      if (config.privateKey != null && config.privateKey!.isNotEmpty) {
+        try {
+          identities.addAll(SSHKeyPair.fromPem(
+            config.privateKey!,
+            config.passphrase,
+          ));
+          terminal.write('Using provided private key.\r\n');
+        } catch (e) {
+          terminal.write('\x1B[33mWarning: Failed to load private key: $e\x1B[0m\r\n');
+        }
+      }
+
+      // Load default keys on Linux/macOS if enabled
+      if (config.useDefaultKeys && (Platform.isLinux || Platform.isMacOS)) {
+        final defaultKeys = await _loadDefaultKeys();
+        if (defaultKeys.isNotEmpty) {
+          identities.addAll(defaultKeys);
+          terminal.write('Loaded ${defaultKeys.length} default SSH key(s).\r\n');
+        }
+      }
+
       _client = SSHClient(
         socket,
         username: config.username,
         onPasswordRequest: () => config.password ?? '',
-        identities: config.privateKey != null
-            ? [
-                ...SSHKeyPair.fromPem(
-                  config.privateKey!,
-                  config.passphrase,
-                )
-              ]
-            : [],
+        identities: identities,
         onAuthenticated: () {
           terminal.write('Authenticated.\r\n');
         },
@@ -127,7 +250,11 @@ class SshSession {
 
       // Pipe session output to terminal
       _session!.stdout.listen(
-        (data) => terminal.write(String.fromCharCodes(data)),
+        (data) {
+          terminal.write(String.fromCharCodes(data));
+          // Send startup command after shell is ready (first prompt received)
+          _sendStartupCommandIfNeeded();
+        },
         onError: (e) => _handleError('Stream error: $e'),
         onDone: () => _handleDisconnect(),
       );
@@ -144,6 +271,22 @@ class SshSession {
     } catch (e) {
       _handleError('Connection failed: $e');
     }
+  }
+
+  /// Send startup command after shell prompt is detected
+  void _sendStartupCommandIfNeeded() {
+    if (_startupCommandSent) return;
+    if (config.startupCommand == null || config.startupCommand!.isEmpty) return;
+
+    // Mark as sent to avoid sending multiple times
+    _startupCommandSent = true;
+
+    // Small delay to ensure shell is fully ready
+    Future.delayed(const Duration(milliseconds: 500), () {
+      if (_state == SessionState.connected && _session != null) {
+        write('${config.startupCommand}\n');
+      }
+    });
   }
 
   void _handleError(String error) {

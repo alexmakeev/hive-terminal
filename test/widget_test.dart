@@ -50,8 +50,8 @@ void main() {
 
       // Should show connection dialog
       expect(find.text('New Connection'), findsOneWidget);
-      expect(find.text('Host'), findsOneWidget);
-      expect(find.text('Username'), findsOneWidget);
+      expect(find.text('Host *'), findsOneWidget);
+      expect(find.text('Username *'), findsOneWidget);
     });
 
     testWidgets('connection dialog validates required fields', (tester) async {
