@@ -8,7 +8,14 @@ import 'workspace_manager.dart';
 
 /// Main page with workspace management and terminal display
 class WorkspacePage extends StatefulWidget {
-  const WorkspacePage({super.key});
+  final VoidCallback? onCheckForUpdates;
+  final VoidCallback? onShowAbout;
+
+  const WorkspacePage({
+    super.key,
+    this.onCheckForUpdates,
+    this.onShowAbout,
+  });
 
   @override
   State<WorkspacePage> createState() => _WorkspacePageState();
@@ -49,6 +56,54 @@ class _WorkspacePageState extends State<WorkspacePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      appBar: AppBar(
+        title: Row(
+          children: [
+            Icon(
+              Icons.hive,
+              color: Theme.of(context).colorScheme.primary,
+              size: 24,
+            ),
+            const SizedBox(width: 8),
+            const Text('Hive Terminal'),
+          ],
+        ),
+        actions: [
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert),
+            onSelected: (value) {
+              switch (value) {
+                case 'check_updates':
+                  widget.onCheckForUpdates?.call();
+                  break;
+                case 'about':
+                  widget.onShowAbout?.call();
+                  break;
+              }
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem(
+                value: 'check_updates',
+                child: ListTile(
+                  leading: Icon(Icons.system_update),
+                  title: Text('Check for updates'),
+                  contentPadding: EdgeInsets.zero,
+                  visualDensity: VisualDensity.compact,
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'about',
+                child: ListTile(
+                  leading: Icon(Icons.info_outline),
+                  title: Text('About'),
+                  contentPadding: EdgeInsets.zero,
+                  visualDensity: VisualDensity.compact,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
       body: Column(
         children: [
           // Workspace tabs (optional, for desktop)

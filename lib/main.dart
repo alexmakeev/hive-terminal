@@ -4,7 +4,7 @@ import 'core/updater/update_service.dart';
 import 'features/workspace/workspace_page.dart';
 
 /// Current app version - update this on each release
-const String appVersion = '0.3.1';
+const String appVersion = '0.3.2';
 
 /// GitHub repository for updates
 const String githubOwner = 'alexmakeev';
@@ -47,6 +47,62 @@ class _HiveTerminalAppState extends State<HiveTerminalApp> {
   void dispose() {
     _updateService.dispose();
     super.dispose();
+  }
+
+  Future<void> _checkForUpdates() async {
+    final context = _navigatorKey.currentContext;
+    if (context == null) return;
+
+    // Show loading indicator
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(
+        child: CircularProgressIndicator(),
+      ),
+    );
+
+    final update = await _updateService.forceCheckForUpdate();
+
+    // Hide loading indicator
+    if (context.mounted) {
+      Navigator.of(context).pop();
+    }
+
+    if (update != null) {
+      _showUpdateDialog(update);
+    } else {
+      // Show "no updates" message
+      if (_navigatorKey.currentContext != null) {
+        ScaffoldMessenger.of(_navigatorKey.currentContext!).showSnackBar(
+          SnackBar(
+            content: Text('You are on the latest version ($appVersion)'),
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    }
+  }
+
+  void _showAboutDialog() {
+    final context = _navigatorKey.currentContext;
+    if (context == null) return;
+
+    showAboutDialog(
+      context: context,
+      applicationName: 'Hive Terminal',
+      applicationVersion: appVersion,
+      applicationIcon: const Icon(
+        Icons.hive,
+        size: 48,
+        color: Color(0xFFFF9800),
+      ),
+      children: [
+        const Text('Mobile terminal for managing AI agents.'),
+        const SizedBox(height: 16),
+        const Text('SSH client with AI CLI integration.'),
+      ],
+    );
   }
 
   void _showUpdateDialog(UpdateInfo update) {
@@ -121,7 +177,10 @@ class _HiveTerminalAppState extends State<HiveTerminalApp> {
         useMaterial3: true,
         scaffoldBackgroundColor: const Color(0xFF1A1208),
       ),
-      home: const WorkspacePage(),
+      home: WorkspacePage(
+        onCheckForUpdates: _checkForUpdates,
+        onShowAbout: _showAboutDialog,
+      ),
     );
   }
 }
