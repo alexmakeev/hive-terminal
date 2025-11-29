@@ -120,9 +120,9 @@ class UpdateService {
     if (Platform.isMacOS) {
       pattern = '.dmg';
     } else if (Platform.isWindows) {
-      pattern = '.msix';
+      pattern = '-windows.zip';
     } else if (Platform.isLinux) {
-      pattern = '.AppImage';
+      pattern = '-linux.tar.gz';
     } else if (Platform.isAndroid) {
       pattern = '.apk';
     } else if (Platform.isIOS) {
@@ -219,6 +219,54 @@ class UpdateService {
 
     if (update != null) {
       onUpdateAvailable(update);
+    }
+  }
+
+  /// Force check for updates (ignores interval and skipped version)
+  Future<UpdateInfo?> forceCheckForUpdate() async {
+    try {
+      final url = Uri.parse(
+        'https://api.github.com/repos/${config.owner}/${config.repo}/releases/latest',
+      );
+
+      final response = await http.get(
+        url,
+        headers: {'Accept': 'application/vnd.github.v3+json'},
+      );
+
+      if (response.statusCode != 200) {
+        debugPrint('Failed to check for updates: ${response.statusCode}');
+        return null;
+      }
+
+      final data = json.decode(response.body) as Map<String, dynamic>;
+      final tagName = data['tag_name'] as String?;
+
+      if (tagName == null) return null;
+
+      // Remove 'v' prefix if present
+      final latestVersion = tagName.startsWith('v')
+          ? tagName.substring(1)
+          : tagName;
+
+      // Compare versions (skip check for skipped version)
+      if (!_isNewerVersion(latestVersion, config.currentVersion)) {
+        return null;
+      }
+
+      // Find download URL for current platform
+      final downloadUrl = _getDownloadUrl(data);
+
+      return UpdateInfo(
+        version: latestVersion,
+        downloadUrl: downloadUrl ?? data['html_url'] as String? ??
+            'https://github.com/${config.owner}/${config.repo}/releases/latest',
+        releaseNotes: data['body'] as String? ?? '',
+        publishedAt: DateTime.parse(data['published_at'] as String),
+      );
+    } catch (e) {
+      debugPrint('Error checking for updates: $e');
+      return null;
     }
   }
 
