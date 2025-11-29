@@ -1,10 +1,29 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:hive_terminal/core/updater/update_service.dart';
+
+/// Get expected asset name pattern for current platform
+String? _getExpectedPattern() {
+  if (Platform.isMacOS) return '.dmg';
+  if (Platform.isWindows) return '-windows.zip';
+  if (Platform.isLinux) return '.AppImage';
+  if (Platform.isAndroid) return '.apk';
+  return null;
+}
+
+/// Get expected asset name for current platform
+String _getExpectedAssetName() {
+  if (Platform.isMacOS) return 'hive-terminal.dmg';
+  if (Platform.isWindows) return 'hive-terminal-windows.zip';
+  if (Platform.isLinux) return 'hive-terminal-linux.AppImage';
+  if (Platform.isAndroid) return 'app-release.apk';
+  return 'unknown';
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -63,7 +82,8 @@ void main() {
       );
     });
 
-    test('returns APK URL for Android assets', () {
+    test('returns platform-specific URL when asset exists', () {
+      final expectedAsset = _getExpectedAssetName();
       final releaseData = {
         'html_url': 'https://github.com/test/test-repo/releases/v1.0.0',
         'assets': [
@@ -75,36 +95,38 @@ void main() {
             'name': 'hive-terminal-windows.zip',
             'browser_download_url': 'https://github.com/test/test-repo/releases/download/v1.0.0/hive-terminal-windows.zip',
           },
-        ],
-      };
-
-      // On Linux (test environment), it should find the linux AppImage
-      // Since we don't have it, it should fallback to html_url
-      final url = service.getDownloadUrl(releaseData);
-      expect(url, equals('https://github.com/test/test-repo/releases/v1.0.0'));
-    });
-
-    test('returns correct URL when Linux AppImage exists', () {
-      final releaseData = {
-        'html_url': 'https://github.com/test/test-repo/releases/v1.0.0',
-        'assets': [
-          {
-            'name': 'app-release.apk',
-            'browser_download_url': 'https://github.com/test/test-repo/releases/download/v1.0.0/app-release.apk',
-          },
           {
             'name': 'hive-terminal-linux.AppImage',
             'browser_download_url': 'https://github.com/test/test-repo/releases/download/v1.0.0/hive-terminal-linux.AppImage',
           },
+          {
+            'name': 'hive-terminal.dmg',
+            'browser_download_url': 'https://github.com/test/test-repo/releases/download/v1.0.0/hive-terminal.dmg',
+          },
         ],
       };
 
       final url = service.getDownloadUrl(releaseData);
-      // On Linux test environment, should find the linux AppImage
-      expect(url, equals('https://github.com/test/test-repo/releases/download/v1.0.0/hive-terminal-linux.AppImage'));
+      // Should find the asset matching current platform
+      expect(url, contains(expectedAsset));
     });
 
-    test('returns html_url when no assets', () {
+    test('returns html_url when no matching asset for platform', () {
+      final releaseData = {
+        'html_url': 'https://github.com/test/test-repo/releases/v1.0.0',
+        'assets': [
+          {
+            'name': 'some-unrelated-file.txt',
+            'browser_download_url': 'https://github.com/test/test-repo/releases/download/v1.0.0/some-unrelated-file.txt',
+          },
+        ],
+      };
+
+      final url = service.getDownloadUrl(releaseData);
+      expect(url, equals('https://github.com/test/test-repo/releases/v1.0.0'));
+    });
+
+    test('returns null when no assets', () {
       final releaseData = {
         'html_url': 'https://github.com/test/test-repo/releases/v1.0.0',
         'assets': <dynamic>[],
@@ -130,6 +152,9 @@ void main() {
     });
 
     test('returns UpdateInfo when newer version available', () async {
+      final expectedPattern = _getExpectedPattern();
+      final expectedAsset = _getExpectedAssetName();
+
       final mockClient = MockClient((request) async {
         expect(request.url.toString(), contains('api.github.com'));
         expect(request.url.toString(), contains('releases/latest'));
@@ -142,8 +167,20 @@ void main() {
             'published_at': '2024-01-01T00:00:00Z',
             'assets': [
               {
+                'name': 'app-release.apk',
+                'browser_download_url': 'https://github.com/test/repo/releases/download/v2.0.0/app-release.apk',
+              },
+              {
                 'name': 'hive-terminal-linux.AppImage',
                 'browser_download_url': 'https://github.com/test/repo/releases/download/v2.0.0/hive-terminal-linux.AppImage',
+              },
+              {
+                'name': 'hive-terminal-windows.zip',
+                'browser_download_url': 'https://github.com/test/repo/releases/download/v2.0.0/hive-terminal-windows.zip',
+              },
+              {
+                'name': 'hive-terminal.dmg',
+                'browser_download_url': 'https://github.com/test/repo/releases/download/v2.0.0/hive-terminal.dmg',
               },
             ],
           }),
@@ -164,7 +201,10 @@ void main() {
 
       expect(update, isNotNull);
       expect(update!.version, equals('2.0.0'));
-      expect(update.downloadUrl, contains('hive-terminal-linux.AppImage'));
+      // Should find asset for current platform
+      if (expectedPattern != null) {
+        expect(update.downloadUrl, contains(expectedAsset));
+      }
       expect(update.releaseNotes, equals('Release notes here'));
     });
 
@@ -376,6 +416,7 @@ void main() {
   group('UpdateService integration', () {
     test('full update check flow with mocked HTTP', () async {
       SharedPreferences.setMockInitialValues({});
+      final expectedAsset = _getExpectedAssetName();
 
       final mockClient = MockClient((request) async {
         return http.Response(
@@ -427,8 +468,8 @@ void main() {
       expect(update!.version, equals('2.0.0'));
       expect(update.releaseNotes, contains('Feature 1'));
 
-      // On Linux, should get the linux tarball URL
-      expect(update.downloadUrl, contains('hive-terminal-linux.AppImage'));
+      // Should get the platform-specific asset URL
+      expect(update.downloadUrl, contains(expectedAsset));
 
       // Record the check
       await service.recordCheck();
