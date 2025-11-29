@@ -182,20 +182,20 @@ class _SshTerminalViewState extends State<SshTerminalView> {
 
           // Desktop controls
           if (!_isMobile) ...[
-            // Split horizontal
+            // Split horizontal (panels side by side - icon shows vertical line)
             if (widget.onSplitHorizontal != null)
               _ControlButton(
                 icon: Icons.splitscreen,
                 tooltip: 'Split Horizontal',
                 onTap: widget.onSplitHorizontal!,
+                rotated: true,
               ),
-            // Split vertical
+            // Split vertical (panels stacked - icon shows horizontal line)
             if (widget.onSplitVertical != null)
               _ControlButton(
                 icon: Icons.splitscreen,
                 tooltip: 'Split Vertical',
                 onTap: widget.onSplitVertical!,
-                rotated: true,
               ),
           ],
 

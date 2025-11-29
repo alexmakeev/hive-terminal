@@ -55,3 +55,9 @@ Lightweight mobile terminal client connecting to multiple remote AI agents simul
 - **Storage:** Hive (local DB)
 
 See `architecture.md` for full technical details.
+
+## Versioning Policy
+
+- **Patch (x.x.X)** - default for all changes (features, fixes, improvements)
+- **Minor (x.X.0)** - only for breaking changes or incompatibilities
+- **Major (X.0.0)** - only when explicitly requested by user
