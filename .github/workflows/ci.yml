@@ -73,14 +73,19 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: 'stable'
       - run: flutter pub get
-      - run: flutter build apk --debug
+      - run: flutter build apk --release
       - name: Verify APK exists
         run: |
-          if [ ! -f "build/app/outputs/flutter-apk/app-debug.apk" ]; then
+          if [ ! -f "build/app/outputs/flutter-apk/app-release.apk" ]; then
             echo "APK not found!"
             exit 1
           fi
-          echo "APK size: $(ls -lh build/app/outputs/flutter-apk/app-debug.apk | awk '{print $5}')"
+          echo "APK size: $(ls -lh build/app/outputs/flutter-apk/app-release.apk | awk '{print $5}')"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-apk-${{ github.sha }}
+          path: build/app/outputs/flutter-apk/app-release.apk
+          retention-days: 30
 
   # Build iOS (no codesign)
   build-ios:
@@ -93,14 +98,18 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: 'stable'
       - run: flutter pub get
-      - run: flutter build ios --debug --no-codesign
-      - name: Verify iOS build exists
+      - run: flutter build ios --release --no-codesign
+      - name: Create IPA
         run: |
-          if [ ! -d "build/ios/iphoneos/Runner.app" ]; then
-            echo "iOS app not found!"
-            exit 1
-          fi
-          echo "iOS app built successfully"
+          cd build/ios/iphoneos
+          mkdir Payload
+          cp -r Runner.app Payload/
+          zip -r ../hive-terminal-ios.ipa Payload
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-ipa-${{ github.sha }}
+          path: build/ios/hive-terminal-ios.ipa
+          retention-days: 30
 
   # Build macOS
   build-macos:
@@ -113,14 +122,27 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: 'stable'
       - run: flutter pub get
-      - run: flutter build macos --debug
-      - name: Verify macOS app exists
+      - run: flutter build macos --release
+      - name: Create DMG
         run: |
-          if [ ! -d "build/macos/Build/Products/Debug/hive_terminal.app" ]; then
-            echo "macOS app not found!"
-            exit 1
-          fi
-          echo "macOS app built successfully"
+          brew install create-dmg || true
+          create-dmg \
+            --volname "Hive Terminal" \
+            --window-pos 200 120 \
+            --window-size 600 400 \
+            --icon-size 100 \
+            --app-drop-link 450 185 \
+            build/macos/hive-terminal.dmg \
+            build/macos/Build/Products/Release/hive_terminal.app || \
+          (cd build/macos/Build/Products/Release && zip -r ../../../hive-terminal-macos.zip hive_terminal.app)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-app-${{ github.sha }}
+          path: |
+            build/macos/hive-terminal.dmg
+            build/macos/hive-terminal-macos.zip
+          if-no-files-found: warn
+          retention-days: 30
 
   # Build Windows
   build-windows:
@@ -133,15 +155,27 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: 'stable'
       - run: flutter pub get
-      - run: flutter build windows --debug
-      - name: Verify Windows exe exists
+      - run: flutter build windows --release
+      - name: Bundle VC++ Runtime DLLs
         shell: pwsh
         run: |
-          if (!(Test-Path "build\windows\x64\runner\Debug\hive_terminal.exe")) {
-            Write-Error "Windows exe not found!"
-            exit 1
+          $vcRuntime = "C:\Windows\System32"
+          $dest = "build\windows\x64\runner\Release"
+          $dlls = @("msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll")
+          foreach ($dll in $dlls) {
+            $src = Join-Path $vcRuntime $dll
+            if (Test-Path $src) {
+              Copy-Item $src $dest -Force
+              Write-Host "Copied $dll"
+            }
           }
-          Write-Host "Windows app built successfully"
+      - name: Create ZIP
+        run: Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath build\windows\hive-terminal-windows.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-zip-${{ github.sha }}
+          path: build/windows/hive-terminal-windows.zip
+          retention-days: 30
 
   # Build Linux
   build-linux:
@@ -156,13 +190,44 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libstdc++-12-dev libsecret-1-dev
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libstdc++-12-dev libsecret-1-dev libfuse2
       - run: flutter pub get
-      - run: flutter build linux --debug
-      - name: Verify Linux binary exists
+      - run: flutter build linux --release
+      - name: Create AppImage
         run: |
-          if [ ! -f "build/linux/x64/debug/bundle/hive_terminal" ]; then
-            echo "Linux binary not found!"
-            exit 1
-          fi
-          echo "Linux app built successfully"
+          wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool-x86_64.AppImage
+          mkdir -p AppDir/usr/bin AppDir/usr/lib AppDir/usr/share/applications AppDir/usr/share/icons/hicolor/256x256/apps
+          cp -r build/linux/x64/release/bundle/* AppDir/usr/bin/
+          cat > AppDir/usr/share/applications/hive-terminal.desktop << 'DESKTOP'
+          [Desktop Entry]
+          Name=Hive Terminal
+          Comment=Mobile terminal for managing AI agents
+          Exec=hive_terminal
+          Icon=hive-terminal
+          Type=Application
+          Categories=Development;Utility;TerminalEmulator;
+          DESKTOP
+          cp AppDir/usr/share/applications/hive-terminal.desktop AppDir/
+          cat > AppDir/hive-terminal.svg << 'SVG'
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+            <polygon points="50,5 95,27.5 95,72.5 50,95 5,72.5 5,27.5" fill="#FF9800"/>
+            <text x="50" y="60" text-anchor="middle" font-size="30" fill="white" font-family="sans-serif">H</text>
+          </svg>
+          SVG
+          cp AppDir/hive-terminal.svg AppDir/usr/share/icons/hicolor/256x256/apps/
+          cat > AppDir/AppRun << 'APPRUN'
+          #!/bin/bash
+          SELF=$(readlink -f "$0")
+          HERE=${SELF%/*}
+          export PATH="${HERE}/usr/bin:${PATH}"
+          export LD_LIBRARY_PATH="${HERE}/usr/bin/lib:${HERE}/usr/lib:${LD_LIBRARY_PATH}"
+          exec "${HERE}/usr/bin/hive_terminal" "$@"
+          APPRUN
+          chmod +x AppDir/AppRun
+          ARCH=x86_64 ./appimagetool-x86_64.AppImage AppDir hive-terminal-linux.AppImage
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-appimage-${{ github.sha }}
+          path: hive-terminal-linux.AppImage
+          retention-days: 30
