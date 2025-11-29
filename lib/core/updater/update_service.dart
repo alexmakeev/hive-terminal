@@ -153,7 +153,7 @@ class UpdateService {
       }
 
       // Build nightly.link download URL
-      final downloadUrl = _getNightlyDownloadUrl(commitSha);
+      final downloadUrl = _getNightlyDownloadUrl(runId, commitSha);
 
       return UpdateInfo(
         version: 'nightly-${commitSha.substring(0, 7)}',
@@ -169,9 +169,9 @@ class UpdateService {
   }
 
   /// Get nightly.link download URL for current platform
-  String _getNightlyDownloadUrl(String commitSha) {
+  String _getNightlyDownloadUrl(int runId, String commitSha) {
     final artifactName = _getNightlyArtifactName(commitSha);
-    return 'https://nightly.link/${config.owner}/${config.repo}/actions/runs/latest/$artifactName';
+    return 'https://nightly.link/${config.owner}/${config.repo}/actions/runs/$runId/$artifactName';
   }
 
   /// Get artifact name for nightly builds
