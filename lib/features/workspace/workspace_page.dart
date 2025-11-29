@@ -37,13 +37,19 @@ class _WorkspacePageState extends State<WorkspacePage> {
     _connectionRepository = ConnectionRepository();
     _connectionRepository.load();
     _manager.addListener(_onManagerChanged);
+    _connectionRepository.addListener(_onRepositoryChanged);
   }
 
   @override
   void dispose() {
     _manager.removeListener(_onManagerChanged);
+    _connectionRepository.removeListener(_onRepositoryChanged);
     _pageController.dispose();
     super.dispose();
+  }
+
+  void _onRepositoryChanged() {
+    if (mounted) setState(() {});
   }
 
   void _onManagerChanged() {

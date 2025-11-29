@@ -215,6 +215,21 @@ class SshSession {
     try {
       terminal.write('Connecting to ${config.host}:${config.port}...\r\n');
 
+      // Debug: show what credentials are available
+      terminal.write('\x1B[90mAuth: ');
+      final authMethods = <String>[];
+      if (config.password != null && config.password!.isNotEmpty) {
+        authMethods.add('password');
+      }
+      if (config.privateKey != null && config.privateKey!.isNotEmpty) {
+        authMethods.add('privateKey(${config.privateKey!.length} chars)');
+      }
+      if (config.useDefaultKeys) {
+        authMethods.add('defaultKeys');
+      }
+      terminal.write(authMethods.isEmpty ? 'none' : authMethods.join(', '));
+      terminal.write('\x1B[0m\r\n');
+
       final socket = await SSHSocket.connect(config.host, config.port);
 
       // Build identities list

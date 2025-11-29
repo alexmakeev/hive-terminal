@@ -138,6 +138,11 @@ class ConnectionRepository extends ChangeNotifier {
       final privateKey = await _secureStorage.read(key: '${config.id}_privateKey');
       final passphrase = await _secureStorage.read(key: '${config.id}_passphrase');
 
+      debugPrint('Loaded credentials for ${config.name}: '
+          'password=${password != null ? "${password.length} chars" : "null"}, '
+          'privateKey=${privateKey != null ? "${privateKey.length} chars" : "null"}, '
+          'passphrase=${passphrase != null ? "set" : "null"}');
+
       return ConnectionConfig(
         id: config.id,
         name: config.name,
@@ -158,6 +163,11 @@ class ConnectionRepository extends ChangeNotifier {
 
   /// Save credentials to secure storage
   Future<void> _saveCredentials(ConnectionConfig config) async {
+    debugPrint('Saving credentials for ${config.name}: '
+        'password=${config.password != null ? "${config.password!.length} chars" : "null"}, '
+        'privateKey=${config.privateKey != null ? "${config.privateKey!.length} chars" : "null"}, '
+        'passphrase=${config.passphrase != null ? "set" : "null"}');
+
     try {
       if (config.password != null) {
         await _secureStorage.write(
@@ -185,6 +195,7 @@ class ConnectionRepository extends ChangeNotifier {
       } else {
         await _secureStorage.delete(key: '${config.id}_passphrase');
       }
+      debugPrint('Credentials saved successfully');
     } catch (e) {
       debugPrint('Failed to save credentials: $e');
     }
