@@ -137,18 +137,21 @@ class ConnectionRepository extends ChangeNotifier {
     String? privateKey;
     String? passphrase;
 
+    debugPrint('[LOAD] Loading credentials for ${config.name} (${config.id})');
+
     try {
       password = await _secureStorage.read(key: '${config.id}_password');
-      privateKey = await _secureStorage.read(key: '${config.id}_privateKey');
-      passphrase = await _secureStorage.read(key: '${config.id}_passphrase');
-    } catch (e) {
-      debugPrint('SecureStorage error for ${config.name}: $e');
-    }
+      debugPrint('[LOAD] password=${password != null ? "${password.length}ch" : "null"}');
 
-    debugPrint('[SecureStorage] ${config.name}: '
-        'password=${password != null ? "${password.length}ch" : "null"}, '
-        'privateKey=${privateKey != null ? "${privateKey.length}ch" : "null"}, '
-        'passphrase=${passphrase != null ? "set" : "null"}');
+      privateKey = await _secureStorage.read(key: '${config.id}_privateKey');
+      debugPrint('[LOAD] privateKey=${privateKey != null ? "${privateKey.length}ch" : "null"}');
+
+      passphrase = await _secureStorage.read(key: '${config.id}_passphrase');
+      debugPrint('[LOAD] passphrase=${passphrase != null ? "set" : "null"}');
+    } catch (e, stack) {
+      debugPrint('[LOAD] ERROR: $e');
+      debugPrint('[LOAD] Stack: $stack');
+    }
 
     return ConnectionConfig(
       id: config.id,
@@ -166,9 +169,9 @@ class ConnectionRepository extends ChangeNotifier {
 
   /// Save credentials to secure storage
   Future<void> _saveCredentials(ConnectionConfig config) async {
-    debugPrint('Saving credentials for ${config.name}: '
-        'password=${config.password != null ? "${config.password!.length} chars" : "null"}, '
-        'privateKey=${config.privateKey != null ? "${config.privateKey!.length} chars" : "null"}, '
+    debugPrint('[SAVE] ${config.name} (${config.id}): '
+        'password=${config.password != null ? "${config.password!.length}ch" : "null"}, '
+        'privateKey=${config.privateKey != null ? "${config.privateKey!.length}ch" : "null"}, '
         'passphrase=${config.passphrase != null ? "set" : "null"}');
 
     try {
@@ -177,6 +180,7 @@ class ConnectionRepository extends ChangeNotifier {
           key: '${config.id}_password',
           value: config.password,
         );
+        debugPrint('[SAVE] password written');
       } else {
         await _secureStorage.delete(key: '${config.id}_password');
       }
@@ -186,6 +190,7 @@ class ConnectionRepository extends ChangeNotifier {
           key: '${config.id}_privateKey',
           value: config.privateKey,
         );
+        debugPrint('[SAVE] privateKey written');
       } else {
         await _secureStorage.delete(key: '${config.id}_privateKey');
       }
@@ -195,12 +200,17 @@ class ConnectionRepository extends ChangeNotifier {
           key: '${config.id}_passphrase',
           value: config.passphrase,
         );
+        debugPrint('[SAVE] passphrase written');
       } else {
         await _secureStorage.delete(key: '${config.id}_passphrase');
       }
-      debugPrint('Credentials saved successfully');
-    } catch (e) {
-      debugPrint('Failed to save credentials: $e');
+
+      // Verify save by reading back
+      final verifyKey = await _secureStorage.read(key: '${config.id}_privateKey');
+      debugPrint('[SAVE] verify: privateKey=${verifyKey != null ? "${verifyKey.length}ch" : "null"}');
+    } catch (e, stack) {
+      debugPrint('[SAVE] ERROR: $e');
+      debugPrint('[SAVE] Stack: $stack');
     }
   }
 
