@@ -114,7 +114,7 @@ jobs:
       - name: Create tarball
         run: |
           cd build/linux/x64/release/bundle
-          tar -czvf ../../../hive-terminal-linux.tar.gz *
+          tar -czvf ../hive-terminal-linux.tar.gz *
       - uses: actions/upload-artifact@v4
         with:
           name: linux-tarball
