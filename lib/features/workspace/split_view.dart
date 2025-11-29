@@ -29,7 +29,7 @@ class SplitView extends StatelessWidget {
   Widget _buildNode(SplitNode node) {
     if (node is TerminalNode) {
       return SshTerminalView(
-        key: ValueKey(node.id),
+        key: node.pane.key, // GlobalKey survives reparenting
         config: node.pane.config,
         onClose: () => onClose(node.id),
         onSplitHorizontal: _isDesktop ? () => onSplit(node.id, true) : null,

@@ -134,8 +134,6 @@ class SshSession {
   SSHSession? _session;
   SessionState _state = SessionState.disconnected;
   String? _lastError;
-  Timer? _reconnectTimer;
-  bool _shouldReconnect = true;
   bool _startupCommandSent = false;
 
   SshSession({
@@ -156,13 +154,20 @@ class SshSession {
   /// Load default SSH keys from ~/.ssh/
   Future<List<SSHKeyPair>> _loadDefaultKeys() async {
     final keys = <SSHKeyPair>[];
+    final errors = <String>[];
 
     try {
       final home = Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'];
-      if (home == null) return keys;
+      if (home == null) {
+        terminal.write('\x1B[33mWarning: Cannot determine home directory\x1B[0m\r\n');
+        return keys;
+      }
 
       final sshDir = Directory('$home/.ssh');
-      if (!await sshDir.exists()) return keys;
+      if (!await sshDir.exists()) {
+        terminal.write('\x1B[33mWarning: ~/.ssh directory not found\x1B[0m\r\n');
+        return keys;
+      }
 
       // Common key file names
       final keyNames = ['id_ed25519', 'id_rsa', 'id_ecdsa'];
@@ -174,14 +179,24 @@ class SshSession {
             final keyContent = await keyFile.readAsString();
             final keyPairs = SSHKeyPair.fromPem(keyContent, config.passphrase);
             keys.addAll(keyPairs);
-            debugPrint('Loaded SSH key: $name');
+            terminal.write('Loaded key: $name\r\n');
           } catch (e) {
-            debugPrint('Failed to load key $name: $e');
+            final errorMsg = e.toString();
+            if (errorMsg.contains('passphrase') || errorMsg.contains('decrypt') || errorMsg.contains('encrypted')) {
+              errors.add('$name: needs passphrase');
+            } else {
+              errors.add('$name: $errorMsg');
+            }
           }
         }
       }
+
+      // Show errors for failed keys
+      for (final err in errors) {
+        terminal.write('\x1B[33mFailed to load $err\x1B[0m\r\n');
+      }
     } catch (e) {
-      debugPrint('Error loading default keys: $e');
+      terminal.write('\x1B[31mError loading SSH keys: $e\x1B[0m\r\n');
     }
 
     return keys;
@@ -193,7 +208,6 @@ class SshSession {
       return;
     }
 
-    _shouldReconnect = true;
     _startupCommandSent = false;
     _setState(SessionState.connecting);
     _lastError = null;
@@ -292,8 +306,8 @@ class SshSession {
   void _handleError(String error) {
     _lastError = error;
     terminal.write('\r\n\x1B[31m$error\x1B[0m\r\n');
+    terminal.write('\x1B[90mPress reconnect button to try again.\x1B[0m\r\n');
     _setState(SessionState.error);
-    _scheduleReconnect();
   }
 
   void _handleDisconnect() {
@@ -302,19 +316,6 @@ class SshSession {
     terminal.write('\r\n\x1B[33mDisconnected.\x1B[0m\r\n');
     _setState(SessionState.disconnected);
     _cleanup();
-    _scheduleReconnect();
-  }
-
-  void _scheduleReconnect() {
-    if (!_shouldReconnect) return;
-
-    _reconnectTimer?.cancel();
-    _reconnectTimer = Timer(const Duration(seconds: 3), () {
-      if (_shouldReconnect && _state != SessionState.connected) {
-        terminal.write('\r\nReconnecting...\r\n');
-        connect();
-      }
-    });
   }
 
   /// Write data to session
@@ -388,8 +389,6 @@ class SshSession {
 
   /// Disconnect and cleanup
   Future<void> disconnect() async {
-    _shouldReconnect = false;
-    _reconnectTimer?.cancel();
     _cleanup();
     _setState(SessionState.disconnected);
   }

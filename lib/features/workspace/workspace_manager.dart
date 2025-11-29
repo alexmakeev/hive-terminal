@@ -7,11 +7,13 @@ import '../connection/ssh_session.dart';
 class TerminalPane {
   final String id;
   final ConnectionConfig config;
+  final GlobalKey key;
 
   TerminalPane({
     String? id,
     required this.config,
-  }) : id = id ?? const Uuid().v4();
+  })  : id = id ?? const Uuid().v4(),
+        key = GlobalKey();
 }
 
 /// Represents a split node (either a terminal or a container with children)
