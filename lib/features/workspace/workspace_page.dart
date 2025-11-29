@@ -3,6 +3,9 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import '../connection/connection_dialog.dart';
+import '../connection/connection_repository.dart';
+import '../connection/saved_connections_page.dart';
+import '../connection/ssh_session.dart';
 import 'split_view.dart';
 import 'workspace_manager.dart';
 
@@ -24,12 +27,15 @@ class WorkspacePage extends StatefulWidget {
 class _WorkspacePageState extends State<WorkspacePage> {
   late final WorkspaceManager _manager;
   late final PageController _pageController;
+  late final ConnectionRepository _connectionRepository;
 
   @override
   void initState() {
     super.initState();
     _manager = WorkspaceManager();
     _pageController = PageController(initialPage: _manager.currentIndex);
+    _connectionRepository = ConnectionRepository();
+    _connectionRepository.load();
     _manager.addListener(_onManagerChanged);
   }
 
@@ -69,6 +75,12 @@ class _WorkspacePageState extends State<WorkspacePage> {
           ],
         ),
         actions: [
+          // Saved connections button
+          IconButton(
+            icon: const Icon(Icons.bookmark),
+            tooltip: 'Saved Connections',
+            onPressed: _openSavedConnections,
+          ),
           PopupMenuButton<String>(
             icon: const Icon(Icons.more_vert),
             onSelected: (value) {
@@ -232,9 +244,9 @@ class _WorkspacePageState extends State<WorkspacePage> {
         node: workspace.root!,
         onClose: (nodeId) => _manager.closeTerminal(nodeId),
         onSplit: (nodeId, horizontal) async {
-          final config = await ConnectionDialog.show(context);
-          if (config != null) {
-            _manager.splitTerminal(nodeId, config, horizontal);
+          final result = await _showConnectionChooser();
+          if (result != null) {
+            _manager.splitTerminal(nodeId, result, horizontal);
           }
         },
       ),
@@ -243,6 +255,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
 
   Widget _buildEmptyState() {
     final theme = Theme.of(context);
+    final hasSavedConnections = _connectionRepository.connections.isNotEmpty;
 
     return Center(
       child: Column(
@@ -284,6 +297,16 @@ class _WorkspacePageState extends State<WorkspacePage> {
               color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
             ),
           ),
+          if (hasSavedConnections) ...[
+            const SizedBox(height: 24),
+            OutlinedButton.icon(
+              onPressed: _openSavedConnections,
+              icon: const Icon(Icons.bookmark),
+              label: Text(
+                '${_connectionRepository.connections.length} saved connection(s)',
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -364,10 +387,145 @@ class _WorkspacePageState extends State<WorkspacePage> {
     );
   }
 
+  void _openSavedConnections() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => SavedConnectionsPage(
+          repository: _connectionRepository,
+          onConnect: (config) {
+            _manager.addTerminal(config);
+          },
+        ),
+      ),
+    );
+  }
+
+  /// Show connection chooser - quick picks from saved or new connection
+  Future<ConnectionConfig?> _showConnectionChooser() async {
+    final savedConnections = _connectionRepository.connections;
+
+    // If no saved connections, go directly to new connection dialog
+    if (savedConnections.isEmpty) {
+      return _showNewConnectionDialog();
+    }
+
+    // Show bottom sheet with quick picks
+    final result = await showModalBottomSheet<ConnectionConfig?>(
+      context: context,
+      builder: (context) => _ConnectionChooserSheet(
+        savedConnections: savedConnections,
+        onNewConnection: () async {
+          Navigator.of(context).pop();
+          final config = await _showNewConnectionDialog();
+          return config;
+        },
+      ),
+    );
+
+    return result;
+  }
+
+  Future<ConnectionConfig?> _showNewConnectionDialog() async {
+    final result = await ConnectionDialog.show(context);
+    if (result != null) {
+      if (result.addToFavorites) {
+        await _connectionRepository.save(result.config);
+      }
+      return result.config;
+    }
+    return null;
+  }
+
   Future<void> _addNewTerminal() async {
-    final config = await ConnectionDialog.show(context);
+    final config = await _showConnectionChooser();
     if (config != null) {
       _manager.addTerminal(config);
     }
+  }
+}
+
+/// Bottom sheet for quick connection selection
+class _ConnectionChooserSheet extends StatelessWidget {
+  final List<ConnectionConfig> savedConnections;
+  final Future<ConnectionConfig?> Function() onNewConnection;
+
+  const _ConnectionChooserSheet({
+    required this.savedConnections,
+    required this.onNewConnection,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Handle
+          Container(
+            margin: const EdgeInsets.only(top: 8),
+            width: 40,
+            height: 4,
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.4),
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          // Title
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Text(
+              'Connect',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+          ),
+          // Saved connections
+          if (savedConnections.isNotEmpty) ...[
+            const Divider(height: 1),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 200),
+              child: ListView.builder(
+                shrinkWrap: true,
+                itemCount: savedConnections.length,
+                itemBuilder: (context, index) {
+                  final config = savedConnections[index];
+                  return ListTile(
+                    leading: const Icon(Icons.bookmark),
+                    title: Text(config.name),
+                    subtitle: Text(
+                      '${config.username}@${config.host}',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                    trailing: config.startupCommand != null
+                        ? Icon(
+                            Icons.play_circle_outline,
+                            size: 20,
+                            color: Theme.of(context).colorScheme.primary,
+                          )
+                        : null,
+                    onTap: () => Navigator.of(context).pop(config),
+                  );
+                },
+              ),
+            ),
+          ],
+          const Divider(height: 1),
+          // New connection option
+          ListTile(
+            leading: Icon(
+              Icons.add,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+            title: const Text('New Connection'),
+            onTap: () async {
+              final config = await onNewConnection();
+              if (context.mounted && config != null) {
+                Navigator.of(context).pop(config);
+              }
+            },
+          ),
+          const SizedBox(height: 8),
+        ],
+      ),
+    );
   }
 }

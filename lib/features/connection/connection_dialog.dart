@@ -5,14 +5,39 @@ import 'package:uuid/uuid.dart';
 
 import 'ssh_session.dart';
 
-/// Dialog for creating a new SSH connection
-class ConnectionDialog extends StatefulWidget {
-  const ConnectionDialog({super.key});
+/// Result from connection dialog
+class ConnectionDialogResult {
+  final ConnectionConfig config;
+  final bool addToFavorites;
 
-  static Future<ConnectionConfig?> show(BuildContext context) {
-    return showDialog<ConnectionConfig>(
+  const ConnectionDialogResult({
+    required this.config,
+    required this.addToFavorites,
+  });
+}
+
+/// Dialog for creating or editing SSH connection
+class ConnectionDialog extends StatefulWidget {
+  final ConnectionConfig? existingConfig;
+
+  const ConnectionDialog({super.key, this.existingConfig});
+
+  /// Show dialog for new connection
+  static Future<ConnectionDialogResult?> show(BuildContext context) {
+    return showDialog<ConnectionDialogResult>(
       context: context,
       builder: (context) => const ConnectionDialog(),
+    );
+  }
+
+  /// Show dialog for editing existing connection
+  static Future<ConnectionDialogResult?> edit(
+    BuildContext context,
+    ConnectionConfig config,
+  ) {
+    return showDialog<ConnectionDialogResult>(
+      context: context,
+      builder: (context) => ConnectionDialog(existingConfig: config),
     );
   }
 
@@ -35,6 +60,31 @@ class _ConnectionDialogState extends State<ConnectionDialog> {
   bool _obscurePassphrase = true;
   bool _useDefaultKeys = true;
   bool _showAdvanced = false;
+  bool _addToFavorites = true;
+
+  bool get _isEditing => widget.existingConfig != null;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.existingConfig != null) {
+      final config = widget.existingConfig!;
+      _nameController.text = config.name;
+      _hostController.text = config.host;
+      _portController.text = config.port.toString();
+      _usernameController.text = config.username;
+      _passwordController.text = config.password ?? '';
+      _privateKeyController.text = config.privateKey ?? '';
+      _passphraseController.text = config.passphrase ?? '';
+      _startupCommandController.text = config.startupCommand ?? '';
+      _useDefaultKeys = config.useDefaultKeys;
+      _addToFavorites = true; // Already a favorite if editing
+      // Show advanced if any advanced fields are filled
+      _showAdvanced = config.privateKey != null ||
+          config.passphrase != null ||
+          config.startupCommand != null;
+    }
+  }
 
   @override
   void dispose() {
@@ -54,7 +104,7 @@ class _ConnectionDialogState extends State<ConnectionDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('New Connection'),
+      title: Text(_isEditing ? 'Edit Connection' : 'New Connection'),
       content: SizedBox(
         width: 400,
         child: Form(
@@ -327,6 +377,19 @@ class _ConnectionDialogState extends State<ConnectionDialog> {
                     },
                   ),
                 ],
+
+                const SizedBox(height: 16),
+
+                // Add to favorites checkbox (only for new connections)
+                if (!_isEditing)
+                  CheckboxListTile(
+                    value: _addToFavorites,
+                    onChanged: (v) => setState(() => _addToFavorites = v ?? true),
+                    title: const Text('Add to favorites'),
+                    subtitle: const Text('Save for quick access'),
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
+                  ),
               ],
             ),
           ),
@@ -339,7 +402,7 @@ class _ConnectionDialogState extends State<ConnectionDialog> {
         ),
         FilledButton(
           onPressed: _submit,
-          child: const Text('Connect'),
+          child: Text(_isEditing ? 'Save' : 'Connect'),
         ),
       ],
     );
@@ -348,7 +411,7 @@ class _ConnectionDialogState extends State<ConnectionDialog> {
   void _submit() {
     if (_formKey.currentState?.validate() ?? false) {
       final config = ConnectionConfig(
-        id: const Uuid().v4(),
+        id: widget.existingConfig?.id ?? const Uuid().v4(),
         name: _nameController.text.trim(),
         host: _hostController.text.trim(),
         port: int.parse(_portController.text.trim()),
@@ -367,7 +430,10 @@ class _ConnectionDialogState extends State<ConnectionDialog> {
             : _startupCommandController.text.trim(),
         useDefaultKeys: _canUseDefaultKeys && _useDefaultKeys,
       );
-      Navigator.of(context).pop(config);
+      Navigator.of(context).pop(ConnectionDialogResult(
+        config: config,
+        addToFavorites: _isEditing || _addToFavorites,
+      ));
     }
   }
 }
