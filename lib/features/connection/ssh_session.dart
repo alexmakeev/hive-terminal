@@ -158,17 +158,16 @@ class SshSession {
     final keys = <SSHKeyPair>[];
     final errors = <String>[];
 
-    // Use provided folder path or try default
+    // Use provided folder path only (don't try default on macOS - causes hangs)
     String? sshPath = sshFolderPath;
 
     if (sshPath == null) {
-      // Try default path (may fail without permissions)
       if (Platform.isMacOS) {
-        final user = Platform.environment['USER'];
-        if (user != null) {
-          sshPath = '/Users/$user/.ssh';
-        }
+        // On macOS, require explicit folder selection
+        terminal.write('\x1B[33mSSH folder not selected. Use menu → Select SSH Folder\x1B[0m\r\n');
+        return keys;
       } else {
+        // On other platforms, try default
         final home = Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'];
         if (home != null) {
           sshPath = '$home/.ssh';
@@ -183,7 +182,17 @@ class SshSession {
 
     try {
       final sshDir = Directory(sshPath);
-      if (!await sshDir.exists()) {
+
+      // Use timeout to prevent hanging on permission issues
+      final exists = await sshDir.exists().timeout(
+        const Duration(seconds: 2),
+        onTimeout: () {
+          terminal.write('\x1B[33mWarning: SSH folder access timeout\x1B[0m\r\n');
+          return false;
+        },
+      );
+
+      if (!exists) {
         terminal.write('\x1B[33mWarning: SSH folder not found: $sshPath\x1B[0m\r\n');
         return keys;
       }
