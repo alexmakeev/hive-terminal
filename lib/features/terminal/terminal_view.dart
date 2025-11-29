@@ -14,6 +14,7 @@ class SshTerminalView extends StatefulWidget {
   final VoidCallback? onSplitHorizontal;
   final VoidCallback? onSplitVertical;
   final bool showControls;
+  final String? sshFolderPath;
 
   const SshTerminalView({
     super.key,
@@ -22,6 +23,7 @@ class SshTerminalView extends StatefulWidget {
     this.onSplitHorizontal,
     this.onSplitVertical,
     this.showControls = true,
+    this.sshFolderPath,
   });
 
   @override
@@ -50,6 +52,7 @@ class _SshTerminalViewState extends State<SshTerminalView> {
     _session = SshSession(
       config: widget.config,
       terminal: _terminal,
+      sshFolderPath: widget.sshFolderPath,
       onStateChange: (state) {
         if (mounted) {
           setState(() => _sessionState = state);

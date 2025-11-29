@@ -10,12 +10,14 @@ class SplitView extends StatelessWidget {
   final SplitNode node;
   final void Function(String nodeId) onClose;
   final void Function(String nodeId, bool horizontal) onSplit;
+  final String? sshFolderPath;
 
   const SplitView({
     super.key,
     required this.node,
     required this.onClose,
     required this.onSplit,
+    this.sshFolderPath,
   });
 
   bool get _isDesktop =>
@@ -31,6 +33,7 @@ class SplitView extends StatelessWidget {
       return SshTerminalView(
         key: node.pane.key, // GlobalKey survives reparenting
         config: node.pane.config,
+        sshFolderPath: sshFolderPath,
         onClose: () => onClose(node.id),
         onSplitHorizontal: _isDesktop ? () => onSplit(node.id, true) : null,
         onSplitVertical: _isDesktop ? () => onSplit(node.id, false) : null,

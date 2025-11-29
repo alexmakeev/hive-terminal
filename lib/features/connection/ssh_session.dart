@@ -129,6 +129,7 @@ class SshSession {
   final ConnectionConfig config;
   final Terminal terminal;
   final void Function(SessionState state)? onStateChange;
+  final String? sshFolderPath;
 
   SSHClient? _client;
   SSHSession? _session;
@@ -140,6 +141,7 @@ class SshSession {
     required this.config,
     required this.terminal,
     this.onStateChange,
+    this.sshFolderPath,
   });
 
   SessionState get state => _state;
@@ -151,33 +153,38 @@ class SshSession {
     onStateChange?.call(newState);
   }
 
-  /// Get real user home directory (bypasses macOS sandbox)
-  String? _getRealHomeDirectory() {
-    if (Platform.isMacOS) {
-      // On macOS sandbox, HOME points to container. Get real home from passwd.
-      final user = Platform.environment['USER'];
-      if (user != null) {
-        return '/Users/$user';
-      }
-    }
-    return Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'];
-  }
-
-  /// Load default SSH keys from ~/.ssh/
+  /// Load default SSH keys from selected folder
   Future<List<SSHKeyPair>> _loadDefaultKeys() async {
     final keys = <SSHKeyPair>[];
     final errors = <String>[];
 
-    try {
-      final home = _getRealHomeDirectory();
-      if (home == null) {
-        terminal.write('\x1B[33mWarning: Cannot determine home directory\x1B[0m\r\n');
-        return keys;
-      }
+    // Use provided folder path or try default
+    String? sshPath = sshFolderPath;
 
-      final sshDir = Directory('$home/.ssh');
+    if (sshPath == null) {
+      // Try default path (may fail without permissions)
+      if (Platform.isMacOS) {
+        final user = Platform.environment['USER'];
+        if (user != null) {
+          sshPath = '/Users/$user/.ssh';
+        }
+      } else {
+        final home = Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'];
+        if (home != null) {
+          sshPath = '$home/.ssh';
+        }
+      }
+    }
+
+    if (sshPath == null) {
+      terminal.write('\x1B[33mWarning: SSH folder not configured\x1B[0m\r\n');
+      return keys;
+    }
+
+    try {
+      final sshDir = Directory(sshPath);
       if (!await sshDir.exists()) {
-        terminal.write('\x1B[33mWarning: ~/.ssh directory not found\x1B[0m\r\n');
+        terminal.write('\x1B[33mWarning: SSH folder not found: $sshPath\x1B[0m\r\n');
         return keys;
       }
 

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../connection/connection_dialog.dart';
 import '../connection/connection_repository.dart';
 import '../connection/saved_connections_page.dart';
+import '../connection/ssh_folder_manager.dart';
 import '../connection/ssh_session.dart';
 import 'split_view.dart';
 import 'workspace_manager.dart';
@@ -28,6 +29,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
   late final WorkspaceManager _manager;
   late final PageController _pageController;
   late final ConnectionRepository _connectionRepository;
+  late final SshFolderManager _sshFolderManager;
 
   @override
   void initState() {
@@ -35,20 +37,28 @@ class _WorkspacePageState extends State<WorkspacePage> {
     _manager = WorkspaceManager();
     _pageController = PageController(initialPage: _manager.currentIndex);
     _connectionRepository = ConnectionRepository();
+    _sshFolderManager = SshFolderManager();
     _connectionRepository.load();
+    _sshFolderManager.load();
     _manager.addListener(_onManagerChanged);
     _connectionRepository.addListener(_onRepositoryChanged);
+    _sshFolderManager.addListener(_onSshFolderChanged);
   }
 
   @override
   void dispose() {
     _manager.removeListener(_onManagerChanged);
     _connectionRepository.removeListener(_onRepositoryChanged);
+    _sshFolderManager.removeListener(_onSshFolderChanged);
     _pageController.dispose();
     super.dispose();
   }
 
   void _onRepositoryChanged() {
+    if (mounted) setState(() {});
+  }
+
+  void _onSshFolderChanged() {
     if (mounted) setState(() {});
   }
 
@@ -91,6 +101,9 @@ class _WorkspacePageState extends State<WorkspacePage> {
             icon: const Icon(Icons.more_vert),
             onSelected: (value) {
               switch (value) {
+                case 'ssh_folder':
+                  _selectSshFolder();
+                  break;
                 case 'check_updates':
                   widget.onCheckForUpdates?.call();
                   break;
@@ -100,6 +113,30 @@ class _WorkspacePageState extends State<WorkspacePage> {
               }
             },
             itemBuilder: (context) => [
+              if (Platform.isMacOS || Platform.isLinux)
+                PopupMenuItem(
+                  value: 'ssh_folder',
+                  child: ListTile(
+                    leading: Icon(
+                      Icons.folder_open,
+                      color: _sshFolderManager.hasAccess ? null : Colors.orange,
+                    ),
+                    title: Text(_sshFolderManager.hasAccess
+                        ? 'SSH Folder'
+                        : 'Select SSH Folder'),
+                    subtitle: _sshFolderManager.hasAccess
+                        ? Text(
+                            _sshFolderManager.sshFolderPath!.split('/').last,
+                            style: const TextStyle(fontSize: 10),
+                          )
+                        : const Text(
+                            'Required for key auth',
+                            style: TextStyle(fontSize: 10, color: Colors.orange),
+                          ),
+                    contentPadding: EdgeInsets.zero,
+                    visualDensity: VisualDensity.compact,
+                  ),
+                ),
               const PopupMenuItem(
                 value: 'check_updates',
                 child: ListTile(
@@ -248,6 +285,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
       padding: const EdgeInsets.all(8),
       child: SplitView(
         node: workspace.root!,
+        sshFolderPath: _sshFolderManager.sshFolderPath,
         onClose: (nodeId) => _manager.closeTerminal(nodeId),
         onSplit: (nodeId, horizontal) async {
           final result = await _showConnectionChooser();
@@ -391,6 +429,20 @@ class _WorkspacePageState extends State<WorkspacePage> {
         ),
       ),
     );
+  }
+
+  Future<void> _selectSshFolder() async {
+    final success = await _sshFolderManager.selectFolder();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(success
+              ? 'SSH folder selected: ${_sshFolderManager.sshFolderPath}'
+              : 'Failed to access folder'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
   }
 
   void _openSavedConnections() {
