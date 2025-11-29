@@ -216,19 +216,25 @@ class SshSession {
       terminal.write('Connecting to ${config.host}:${config.port}...\r\n');
 
       // Debug: show what credentials are available
-      terminal.write('\x1B[90mAuth: ');
+      terminal.write('\x1B[90mCredentials: ');
       final authMethods = <String>[];
       if (config.password != null && config.password!.isNotEmpty) {
-        authMethods.add('password');
+        authMethods.add('password(${config.password!.length}ch)');
       }
       if (config.privateKey != null && config.privateKey!.isNotEmpty) {
-        authMethods.add('privateKey(${config.privateKey!.length} chars)');
-      }
-      if (config.useDefaultKeys) {
+        authMethods.add('key(${config.privateKey!.length}ch)');
+        if (config.passphrase != null && config.passphrase!.isNotEmpty) {
+          authMethods.add('passphrase');
+        }
+      } else if (config.useDefaultKeys) {
         authMethods.add('defaultKeys');
       }
-      terminal.write(authMethods.isEmpty ? 'none' : authMethods.join(', '));
-      terminal.write('\x1B[0m\r\n');
+      if (authMethods.isEmpty) {
+        terminal.write('NONE - check saved connection!\x1B[0m\r\n');
+      } else {
+        terminal.write(authMethods.join(', '));
+        terminal.write('\x1B[0m\r\n');
+      }
 
       final socket = await SSHSocket.connect(config.host, config.port);
 
@@ -236,7 +242,9 @@ class SshSession {
       final identities = <SSHKeyPair>[];
 
       // Add explicit private key if provided
-      if (config.privateKey != null && config.privateKey!.isNotEmpty) {
+      final hasExplicitKey = config.privateKey != null && config.privateKey!.isNotEmpty;
+
+      if (hasExplicitKey) {
         try {
           identities.addAll(SSHKeyPair.fromPem(
             config.privateKey!,
@@ -244,12 +252,15 @@ class SshSession {
           ));
           terminal.write('Using provided private key.\r\n');
         } catch (e) {
-          terminal.write('\x1B[33mWarning: Failed to load private key: $e\x1B[0m\r\n');
+          terminal.write('\x1B[31mFailed to load private key: $e\x1B[0m\r\n');
+          // Don't continue if explicit key failed - user needs to fix the config
+          _handleError('Private key error: $e');
+          return;
         }
       }
 
-      // Load default keys on Linux/macOS if enabled
-      if (config.useDefaultKeys && (Platform.isLinux || Platform.isMacOS)) {
+      // Load default keys ONLY if no explicit key provided
+      if (!hasExplicitKey && config.useDefaultKeys && (Platform.isLinux || Platform.isMacOS)) {
         final defaultKeys = await _loadDefaultKeys();
         if (defaultKeys.isNotEmpty) {
           identities.addAll(defaultKeys);
