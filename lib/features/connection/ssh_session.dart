@@ -151,13 +151,25 @@ class SshSession {
     onStateChange?.call(newState);
   }
 
+  /// Get real user home directory (bypasses macOS sandbox)
+  String? _getRealHomeDirectory() {
+    if (Platform.isMacOS) {
+      // On macOS sandbox, HOME points to container. Get real home from passwd.
+      final user = Platform.environment['USER'];
+      if (user != null) {
+        return '/Users/$user';
+      }
+    }
+    return Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'];
+  }
+
   /// Load default SSH keys from ~/.ssh/
   Future<List<SSHKeyPair>> _loadDefaultKeys() async {
     final keys = <SSHKeyPair>[];
     final errors = <String>[];
 
     try {
-      final home = Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'];
+      final home = _getRealHomeDirectory();
       if (home == null) {
         terminal.write('\x1B[33mWarning: Cannot determine home directory\x1B[0m\r\n');
         return keys;

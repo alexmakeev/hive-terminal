@@ -133,32 +133,35 @@ class ConnectionRepository extends ChangeNotifier {
 
   /// Load credentials from secure storage
   Future<ConnectionConfig> _loadCredentials(ConnectionConfig config) async {
+    String? password;
+    String? privateKey;
+    String? passphrase;
+
     try {
-      final password = await _secureStorage.read(key: '${config.id}_password');
-      final privateKey = await _secureStorage.read(key: '${config.id}_privateKey');
-      final passphrase = await _secureStorage.read(key: '${config.id}_passphrase');
-
-      debugPrint('Loaded credentials for ${config.name}: '
-          'password=${password != null ? "${password.length} chars" : "null"}, '
-          'privateKey=${privateKey != null ? "${privateKey.length} chars" : "null"}, '
-          'passphrase=${passphrase != null ? "set" : "null"}');
-
-      return ConnectionConfig(
-        id: config.id,
-        name: config.name,
-        host: config.host,
-        port: config.port,
-        username: config.username,
-        password: password,
-        privateKey: privateKey,
-        passphrase: passphrase,
-        startupCommand: config.startupCommand,
-        useDefaultKeys: config.useDefaultKeys,
-      );
+      password = await _secureStorage.read(key: '${config.id}_password');
+      privateKey = await _secureStorage.read(key: '${config.id}_privateKey');
+      passphrase = await _secureStorage.read(key: '${config.id}_passphrase');
     } catch (e) {
-      debugPrint('Failed to load credentials for ${config.id}: $e');
-      return config;
+      debugPrint('SecureStorage error for ${config.name}: $e');
     }
+
+    debugPrint('[SecureStorage] ${config.name}: '
+        'password=${password != null ? "${password.length}ch" : "null"}, '
+        'privateKey=${privateKey != null ? "${privateKey.length}ch" : "null"}, '
+        'passphrase=${passphrase != null ? "set" : "null"}');
+
+    return ConnectionConfig(
+      id: config.id,
+      name: config.name,
+      host: config.host,
+      port: config.port,
+      username: config.username,
+      password: password,
+      privateKey: privateKey,
+      passphrase: passphrase,
+      startupCommand: config.startupCommand,
+      useDefaultKeys: config.useDefaultKeys,
+    );
   }
 
   /// Save credentials to secure storage
