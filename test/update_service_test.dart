@@ -78,13 +78,13 @@ void main() {
         ],
       };
 
-      // On Linux (test environment), it should find the linux tar.gz
+      // On Linux (test environment), it should find the linux AppImage
       // Since we don't have it, it should fallback to html_url
       final url = service.getDownloadUrl(releaseData);
       expect(url, equals('https://github.com/test/test-repo/releases/v1.0.0'));
     });
 
-    test('returns correct URL when Linux tarball exists', () {
+    test('returns correct URL when Linux AppImage exists', () {
       final releaseData = {
         'html_url': 'https://github.com/test/test-repo/releases/v1.0.0',
         'assets': [
@@ -93,15 +93,15 @@ void main() {
             'browser_download_url': 'https://github.com/test/test-repo/releases/download/v1.0.0/app-release.apk',
           },
           {
-            'name': 'hive-terminal-linux.tar.gz',
-            'browser_download_url': 'https://github.com/test/test-repo/releases/download/v1.0.0/hive-terminal-linux.tar.gz',
+            'name': 'hive-terminal-linux.AppImage',
+            'browser_download_url': 'https://github.com/test/test-repo/releases/download/v1.0.0/hive-terminal-linux.AppImage',
           },
         ],
       };
 
       final url = service.getDownloadUrl(releaseData);
-      // On Linux test environment, should find the linux tarball
-      expect(url, equals('https://github.com/test/test-repo/releases/download/v1.0.0/hive-terminal-linux.tar.gz'));
+      // On Linux test environment, should find the linux AppImage
+      expect(url, equals('https://github.com/test/test-repo/releases/download/v1.0.0/hive-terminal-linux.AppImage'));
     });
 
     test('returns html_url when no assets', () {
@@ -142,8 +142,8 @@ void main() {
             'published_at': '2024-01-01T00:00:00Z',
             'assets': [
               {
-                'name': 'hive-terminal-linux.tar.gz',
-                'browser_download_url': 'https://github.com/test/repo/releases/download/v2.0.0/hive-terminal-linux.tar.gz',
+                'name': 'hive-terminal-linux.AppImage',
+                'browser_download_url': 'https://github.com/test/repo/releases/download/v2.0.0/hive-terminal-linux.AppImage',
               },
             ],
           }),
@@ -164,7 +164,7 @@ void main() {
 
       expect(update, isNotNull);
       expect(update!.version, equals('2.0.0'));
-      expect(update.downloadUrl, contains('hive-terminal-linux.tar.gz'));
+      expect(update.downloadUrl, contains('hive-terminal-linux.AppImage'));
       expect(update.releaseNotes, equals('Release notes here'));
     });
 
@@ -390,8 +390,8 @@ void main() {
                 'browser_download_url': 'https://github.com/alexmakeev/hive-terminal/releases/download/v2.0.0/app-release.apk',
               },
               {
-                'name': 'hive-terminal-linux.tar.gz',
-                'browser_download_url': 'https://github.com/alexmakeev/hive-terminal/releases/download/v2.0.0/hive-terminal-linux.tar.gz',
+                'name': 'hive-terminal-linux.AppImage',
+                'browser_download_url': 'https://github.com/alexmakeev/hive-terminal/releases/download/v2.0.0/hive-terminal-linux.AppImage',
               },
               {
                 'name': 'hive-terminal-windows.zip',
@@ -428,7 +428,7 @@ void main() {
       expect(update.releaseNotes, contains('Feature 1'));
 
       // On Linux, should get the linux tarball URL
-      expect(update.downloadUrl, contains('hive-terminal-linux.tar.gz'));
+      expect(update.downloadUrl, contains('hive-terminal-linux.AppImage'));
 
       // Record the check
       await service.recordCheck();

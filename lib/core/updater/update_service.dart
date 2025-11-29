@@ -175,7 +175,7 @@ class UpdateService {
     } else if (Platform.isWindows) {
       return '-windows.zip';
     } else if (Platform.isLinux) {
-      return '-linux.tar.gz';
+      return '.AppImage';
     } else if (Platform.isAndroid) {
       return '.apk';
     } else if (Platform.isIOS) {

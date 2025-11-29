@@ -4,7 +4,7 @@ import 'core/updater/update_service.dart';
 import 'features/workspace/workspace_page.dart';
 
 /// Current app version - update this on each release
-const String appVersion = '0.3.2';
+const String appVersion = '0.3.3';
 
 /// GitHub repository for updates
 const String githubOwner = 'alexmakeev';

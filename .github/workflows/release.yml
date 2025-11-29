@@ -90,6 +90,20 @@ jobs:
           channel: 'stable'
       - run: flutter pub get
       - run: flutter build windows --release
+      - name: Bundle VC++ Runtime DLLs
+        shell: pwsh
+        run: |
+          $vcRuntime = "C:\Windows\System32"
+          $dest = "build\windows\x64\runner\Release"
+          # Copy VC++ runtime DLLs if they exist
+          $dlls = @("msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll")
+          foreach ($dll in $dlls) {
+            $src = Join-Path $vcRuntime $dll
+            if (Test-Path $src) {
+              Copy-Item $src $dest -Force
+              Write-Host "Copied $dll"
+            }
+          }
       - name: Create ZIP
         run: Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath build\windows\hive-terminal-windows.zip
       - uses: actions/upload-artifact@v4
@@ -108,17 +122,64 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libstdc++-12-dev libsecret-1-dev
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libstdc++-12-dev libsecret-1-dev libfuse2
       - run: flutter pub get
       - run: flutter build linux --release
-      - name: Create tarball
+      - name: Create AppImage
         run: |
-          cd build/linux/x64/release/bundle
-          tar -czvf ../hive-terminal-linux.tar.gz *
+          # Download appimagetool
+          wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool-x86_64.AppImage
+
+          # Create AppDir structure
+          mkdir -p AppDir/usr/bin
+          mkdir -p AppDir/usr/lib
+          mkdir -p AppDir/usr/share/applications
+          mkdir -p AppDir/usr/share/icons/hicolor/256x256/apps
+
+          # Copy Flutter bundle
+          cp -r build/linux/x64/release/bundle/* AppDir/usr/bin/
+
+          # Create desktop file
+          cat > AppDir/usr/share/applications/hive-terminal.desktop << 'DESKTOP'
+          [Desktop Entry]
+          Name=Hive Terminal
+          Comment=Mobile terminal for managing AI agents
+          Exec=hive_terminal
+          Icon=hive-terminal
+          Type=Application
+          Categories=Development;Utility;TerminalEmulator;
+          DESKTOP
+
+          # Copy desktop file to AppDir root (required by AppImage)
+          cp AppDir/usr/share/applications/hive-terminal.desktop AppDir/
+
+          # Create simple icon (orange hexagon)
+          cat > AppDir/hive-terminal.svg << 'SVG'
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+            <polygon points="50,5 95,27.5 95,72.5 50,95 5,72.5 5,27.5" fill="#FF9800"/>
+            <text x="50" y="60" text-anchor="middle" font-size="30" fill="white" font-family="sans-serif">H</text>
+          </svg>
+          SVG
+          cp AppDir/hive-terminal.svg AppDir/usr/share/icons/hicolor/256x256/apps/
+
+          # Create AppRun script
+          cat > AppDir/AppRun << 'APPRUN'
+          #!/bin/bash
+          SELF=$(readlink -f "$0")
+          HERE=${SELF%/*}
+          export PATH="${HERE}/usr/bin:${PATH}"
+          export LD_LIBRARY_PATH="${HERE}/usr/bin/lib:${HERE}/usr/lib:${LD_LIBRARY_PATH}"
+          exec "${HERE}/usr/bin/hive_terminal" "$@"
+          APPRUN
+          chmod +x AppDir/AppRun
+
+          # Build AppImage
+          ARCH=x86_64 ./appimagetool-x86_64.AppImage AppDir hive-terminal-linux.AppImage
       - uses: actions/upload-artifact@v4
         with:
-          name: linux-tarball
-          path: build/linux/x64/release/hive-terminal-linux.tar.gz
+          name: linux-appimage
+          path: hive-terminal-linux.AppImage
 
   create-release:
     needs: [build-android, build-ios, build-macos, build-windows, build-linux]
@@ -140,7 +201,7 @@ jobs:
             artifacts/ios-ipa/hive-terminal-ios.ipa
             artifacts/macos-app/*
             artifacts/windows-zip/hive-terminal-windows.zip
-            artifacts/linux-tarball/hive-terminal-linux.tar.gz
+            artifacts/linux-appimage/hive-terminal-linux.AppImage
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
