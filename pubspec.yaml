@@ -44,6 +44,18 @@ dependencies:
   # Shared preferences for storing last check time
   shared_preferences: ^2.2.0
 
+  # Terminal emulator
+  xterm: ^4.0.0
+
+  # SSH client (pure Dart)
+  dartssh2: ^2.9.0
+
+  # UUID for session IDs
+  uuid: ^4.2.0
+
+  # Secure storage for credentials
+  flutter_secure_storage: ^9.0.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

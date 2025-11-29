@@ -6,25 +6,163 @@ on:
   pull_request:
     branches: [main]
 
+env:
+  FLUTTER_VERSION: '3.38.x'
+
 jobs:
+  # Static analysis
   analyze:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.38.x'
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: 'stable'
       - run: flutter pub get
-      - run: flutter analyze
+      - run: flutter analyze --fatal-infos
 
-  test:
+  # Unit and widget tests on Linux
+  test-linux:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.38.x'
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+      - run: flutter pub get
+      - run: flutter test --coverage
+
+  # Unit and widget tests on macOS
+  test-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: 'stable'
       - run: flutter pub get
       - run: flutter test
+
+  # Unit and widget tests on Windows
+  test-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+      - run: flutter pub get
+      - run: flutter test
+
+  # Build Android APK
+  build-android:
+    needs: [analyze, test-linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+      - run: flutter pub get
+      - run: flutter build apk --debug
+      - name: Verify APK exists
+        run: |
+          if [ ! -f "build/app/outputs/flutter-apk/app-debug.apk" ]; then
+            echo "APK not found!"
+            exit 1
+          fi
+          echo "APK size: $(ls -lh build/app/outputs/flutter-apk/app-debug.apk | awk '{print $5}')"
+
+  # Build iOS (no codesign)
+  build-ios:
+    needs: [analyze, test-macos]
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+      - run: flutter pub get
+      - run: flutter build ios --debug --no-codesign
+      - name: Verify iOS build exists
+        run: |
+          if [ ! -d "build/ios/iphoneos/Runner.app" ]; then
+            echo "iOS app not found!"
+            exit 1
+          fi
+          echo "iOS app built successfully"
+
+  # Build macOS
+  build-macos:
+    needs: [analyze, test-macos]
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+      - run: flutter pub get
+      - run: flutter build macos --debug
+      - name: Verify macOS app exists
+        run: |
+          if [ ! -d "build/macos/Build/Products/Debug/hive_terminal.app" ]; then
+            echo "macOS app not found!"
+            exit 1
+          fi
+          echo "macOS app built successfully"
+
+  # Build Windows
+  build-windows:
+    needs: [analyze, test-windows]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+      - run: flutter pub get
+      - run: flutter build windows --debug
+      - name: Verify Windows exe exists
+        shell: pwsh
+        run: |
+          if (!(Test-Path "build\windows\x64\runner\Debug\hive_terminal.exe")) {
+            Write-Error "Windows exe not found!"
+            exit 1
+          }
+          Write-Host "Windows app built successfully"
+
+  # Build Linux
+  build-linux:
+    needs: [analyze, test-linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libstdc++-12-dev
+      - run: flutter pub get
+      - run: flutter build linux --debug
+      - name: Verify Linux binary exists
+        run: |
+          if [ ! -f "build/linux/x64/debug/bundle/hive_terminal" ]; then
+            echo "Linux binary not found!"
+            exit 1
+          fi
+          echo "Linux app built successfully"
