@@ -66,6 +66,8 @@ coverage/
 
 # Logs
 *.log
+log.txt
+log.old.txt
 
 # Secrets (never commit)
 .env

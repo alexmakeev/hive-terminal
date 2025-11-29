@@ -104,6 +104,63 @@ jobs:
               Write-Host "Copied $dll"
             }
           }
+      - name: Verify build contents
+        shell: pwsh
+        run: |
+          $releaseDir = "build\windows\x64\runner\Release"
+          Write-Host "=== Release directory contents ==="
+          Get-ChildItem -Path $releaseDir -Recurse | Select-Object FullName, Length
+          Write-Host ""
+          Write-Host "=== Checking required files ==="
+          $requiredFiles = @(
+            "hive_terminal.exe",
+            "flutter_windows.dll",
+            "msvcp140.dll",
+            "vcruntime140.dll"
+          )
+          $missing = @()
+          foreach ($file in $requiredFiles) {
+            $path = Join-Path $releaseDir $file
+            if (Test-Path $path) {
+              $size = (Get-Item $path).Length
+              Write-Host "OK: $file ($size bytes)"
+            } else {
+              Write-Host "MISSING: $file"
+              $missing += $file
+            }
+          }
+          if ($missing.Count -gt 0) {
+            Write-Host "ERROR: Missing required files: $($missing -join ', ')"
+            exit 1
+          }
+          Write-Host ""
+          Write-Host "=== Checking data folder ==="
+          $dataDir = Join-Path $releaseDir "data"
+          if (Test-Path $dataDir) {
+            $dataFiles = Get-ChildItem -Path $dataDir -Recurse | Measure-Object
+            Write-Host "OK: data folder exists with $($dataFiles.Count) items"
+          } else {
+            Write-Host "ERROR: data folder missing!"
+            exit 1
+          }
+      - name: Smoke test - launch app
+        shell: pwsh
+        timeout-minutes: 1
+        run: |
+          $exe = "build\windows\x64\runner\Release\hive_terminal.exe"
+          Write-Host "Starting app: $exe"
+          $process = Start-Process -FilePath $exe -PassThru
+          Start-Sleep -Seconds 5
+          if ($process.HasExited) {
+            Write-Host "ERROR: App exited with code $($process.ExitCode)"
+            exit 1
+          }
+          Write-Host "OK: App is running (PID: $($process.Id))"
+          # Check if window was created
+          $windows = Get-Process -Id $process.Id | Select-Object MainWindowTitle, MainWindowHandle
+          Write-Host "Window info: $($windows | ConvertTo-Json)"
+          Stop-Process -Id $process.Id -Force
+          Write-Host "App stopped successfully"
       - name: Create ZIP
         run: Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath build\windows\hive-terminal-windows.zip
       - uses: actions/upload-artifact@v4

@@ -1,17 +1,57 @@
+import 'dart:async';
+import 'dart:io';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import 'core/logging/file_logger.dart';
 import 'core/updater/update_service.dart';
 import 'features/workspace/workspace_page.dart';
 
 /// Current app version - update this on each release
-const String appVersion = '0.3.3';
+const String appVersion = '0.3.4';
 
 /// GitHub repository for updates
 const String githubOwner = 'alexmakeev';
 const String githubRepo = 'hive-terminal';
 
-void main() {
-  runApp(const HiveTerminalApp());
+void main() async {
+  // Catch all errors in the zone
+  await runZonedGuarded(() async {
+    WidgetsFlutterBinding.ensureInitialized();
+
+    // Initialize file logger
+    await logger.init();
+    await logger.log('main() started');
+    await logger.log('App version: $appVersion');
+    await logger.log('Dart version: ${Platform.version}');
+
+    // Set up Flutter error handling
+    FlutterError.onError = (FlutterErrorDetails details) {
+      logger.logError(
+        'Flutter error: ${details.exceptionAsString()}',
+        details.exception,
+        details.stack,
+      );
+      FlutterError.presentError(details);
+    };
+
+    // Handle errors not caught by Flutter
+    PlatformDispatcher.instance.onError = (error, stack) {
+      logger.logError('Platform error', error, stack);
+      return true;
+    };
+
+    await logger.log('Starting app...');
+    runApp(const HiveTerminalApp());
+    await logger.log('runApp() completed');
+  }, (error, stack) async {
+    // This catches errors outside of Flutter's error handling
+    await logger.logError('Unhandled zone error', error, stack);
+    if (kDebugMode) {
+      print('Unhandled error: $error\n$stack');
+    }
+  });
 }
 
 class HiveTerminalApp extends StatefulWidget {
@@ -28,6 +68,8 @@ class _HiveTerminalAppState extends State<HiveTerminalApp> {
   @override
   void initState() {
     super.initState();
+    logger.log('HiveTerminalApp.initState()');
+
     _updateService = UpdateService(
       const UpdateConfig(
         owner: githubOwner,
@@ -39,19 +81,25 @@ class _HiveTerminalAppState extends State<HiveTerminalApp> {
 
     // Start periodic update checks after first frame
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      logger.log('First frame rendered, starting update checks');
       _updateService.startPeriodicChecks(_showUpdateDialog);
     });
   }
 
   @override
   void dispose() {
+    logger.log('HiveTerminalApp.dispose()');
     _updateService.dispose();
     super.dispose();
   }
 
   Future<void> _checkForUpdates() async {
+    logger.log('Manual update check requested');
     final context = _navigatorKey.currentContext;
-    if (context == null) return;
+    if (context == null) {
+      logger.log('No context available for update check');
+      return;
+    }
 
     // Show loading indicator
     showDialog(
@@ -63,6 +111,7 @@ class _HiveTerminalAppState extends State<HiveTerminalApp> {
     );
 
     final update = await _updateService.forceCheckForUpdate();
+    logger.log('Update check result: ${update?.version ?? "no update"}');
 
     // Hide loading indicator
     if (context.mounted) {
@@ -101,6 +150,11 @@ class _HiveTerminalAppState extends State<HiveTerminalApp> {
         const Text('Mobile terminal for managing AI agents.'),
         const SizedBox(height: 16),
         const Text('SSH client with AI CLI integration.'),
+        const SizedBox(height: 16),
+        Text(
+          'Log file: ${logger.logFilePath ?? "not available"}',
+          style: const TextStyle(fontSize: 10),
+        ),
       ],
     );
   }
@@ -165,6 +219,7 @@ class _HiveTerminalAppState extends State<HiveTerminalApp> {
 
   @override
   Widget build(BuildContext context) {
+    logger.log('HiveTerminalApp.build()');
     return MaterialApp(
       navigatorKey: _navigatorKey,
       title: 'Hive Terminal',
