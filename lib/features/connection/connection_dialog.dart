@@ -61,6 +61,7 @@ class _ConnectionDialogState extends State<ConnectionDialog> {
   bool _useDefaultKeys = true;
   bool _showAdvanced = false;
   bool _addToFavorites = true;
+  ConnectionProtocol _protocol = ConnectionProtocol.ssh;
 
   bool get _isEditing => widget.existingConfig != null;
 
@@ -78,6 +79,7 @@ class _ConnectionDialogState extends State<ConnectionDialog> {
       _passphraseController.text = config.passphrase ?? '';
       _startupCommandController.text = config.startupCommand ?? '';
       _useDefaultKeys = config.useDefaultKeys;
+      _protocol = config.protocol;
       _addToFavorites = true; // Already a favorite if editing
       // Show advanced if any advanced fields are filled
       _showAdvanced = config.privateKey != null ||
@@ -151,7 +153,8 @@ class _ConnectionDialogState extends State<ConnectionDialog> {
                       ),
                     ),
                     const SizedBox(width: 12),
-                    Expanded(
+                    SizedBox(
+                      width: 70,
                       child: TextFormField(
                         controller: _portController,
                         decoration: const InputDecoration(
@@ -166,6 +169,31 @@ class _ConnectionDialogState extends State<ConnectionDialog> {
                             return 'Invalid';
                           }
                           return null;
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    SizedBox(
+                      width: 100,
+                      child: DropdownButtonFormField<ConnectionProtocol>(
+                        initialValue: _protocol,
+                        isExpanded: true,
+                        decoration: const InputDecoration(
+                          labelText: 'Protocol',
+                          contentPadding: EdgeInsets.symmetric(horizontal: 8),
+                        ),
+                        items: const [
+                          DropdownMenuItem(
+                            value: ConnectionProtocol.ssh,
+                            child: Text('SSH'),
+                          ),
+                          DropdownMenuItem(
+                            value: ConnectionProtocol.mosh,
+                            child: Text('MOSH'),
+                          ),
+                        ],
+                        onChanged: (value) {
+                          if (value != null) setState(() => _protocol = value);
                         },
                       ),
                     ),
@@ -429,6 +457,7 @@ class _ConnectionDialogState extends State<ConnectionDialog> {
             ? null
             : _startupCommandController.text.trim(),
         useDefaultKeys: _canUseDefaultKeys && _useDefaultKeys,
+        protocol: _protocol,
       );
       Navigator.of(context).pop(ConnectionDialogResult(
         config: config,

@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 
 import '../connection/connection_dialog.dart';
@@ -128,8 +126,8 @@ class _WorkspacePageState extends State<WorkspacePage> {
       ),
       body: Column(
         children: [
-          // Workspace tabs (optional, for desktop)
-          if (_isDesktop) _buildWorkspaceTabs(),
+          // Workspace tabs
+          _buildWorkspaceTabs(),
 
           // Main content - IndexedStack keeps all workspaces alive
           Expanded(
@@ -142,16 +140,10 @@ class _WorkspacePageState extends State<WorkspacePage> {
             ),
           ),
 
-          // Page indicator (for mobile)
-          if (!_isDesktop && _manager.workspaces.length > 1)
-            _buildPageIndicator(),
         ],
       ),
     );
   }
-
-  bool get _isDesktop =>
-      Platform.isMacOS || Platform.isWindows || Platform.isLinux;
 
   Widget _buildWorkspaceTabs() {
     return Container(
@@ -311,48 +303,6 @@ class _WorkspacePageState extends State<WorkspacePage> {
             ),
           ],
         ],
-      ),
-    );
-  }
-
-  Widget _buildPageIndicator() {
-    return Container(
-      height: 32,
-      alignment: Alignment.center,
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: List.generate(
-          _manager.workspaces.length + 1,
-          (index) {
-            final isLast = index == _manager.workspaces.length;
-            final isSelected = index == _manager.currentIndex;
-
-            return Container(
-              width: isLast ? 16 : 8,
-              height: 8,
-              margin: const EdgeInsets.symmetric(horizontal: 4),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(4),
-                color: isSelected
-                    ? Theme.of(context).colorScheme.primary
-                    : Theme.of(context)
-                        .colorScheme
-                        .onSurface
-                        .withValues(alpha: 0.2),
-              ),
-              child: isLast
-                  ? Icon(
-                      Icons.add,
-                      size: 6,
-                      color: Theme.of(context)
-                          .colorScheme
-                          .onSurface
-                          .withValues(alpha: 0.4),
-                    )
-                  : null,
-            );
-          },
-        ),
       ),
     );
   }

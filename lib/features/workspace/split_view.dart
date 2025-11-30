@@ -1,7 +1,7 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 
+import '../connection/ssh_session.dart';
+import '../terminal/mosh_terminal_view.dart';
 import '../terminal/terminal_view.dart';
 import 'workspace_manager.dart';
 
@@ -37,9 +37,6 @@ class SplitView extends StatefulWidget {
 
 class _SplitViewState extends State<SplitView> {
   String? _draggingId;
-
-  bool get _isDesktop =>
-      Platform.isMacOS || Platform.isWindows || Platform.isLinux;
 
   @override
   Widget build(BuildContext context) {
@@ -96,27 +93,39 @@ class _SplitViewState extends State<SplitView> {
     return node;
   }
 
-  Widget _buildNode(SplitNode node, void Function(int)? onFocus, int? index) {
+  Widget _buildNode(SplitNode node, void Function(int)? onFocus, int? index, {bool isNested = false}) {
     if (node is TerminalNode) {
       return _DraggableTerminal(
         nodeId: node.id,
         isDragging: _draggingId == node.id,
-        onDragStart: () => setState(() => _draggingId = node.id),
-        onDragEnd: () => setState(() => _draggingId = null),
         onDrop: widget.onMove != null
             ? (sourceId, position) => widget.onMove!(sourceId, node.id, position)
             : null,
         onFocusEnter: onFocus != null && index != null ? () => onFocus(index) : null,
         onFocusExit: onFocus != null ? () => onFocus(-1) : null,
-        child: SshTerminalView(
-          key: node.pane.key,
-          config: node.pane.config,
-          nodeId: node.id,
-          sshFolderPath: widget.sshFolderPath,
-          onClose: () => widget.onClose(node.id),
-          onSplitHorizontal: _isDesktop ? () => widget.onSplit(node.id, true) : null,
-          onSplitVertical: _isDesktop ? () => widget.onSplit(node.id, false) : null,
-        ),
+        child: node.pane.config.protocol == ConnectionProtocol.mosh
+            ? MoshTerminalView(
+                key: node.pane.key,
+                config: node.pane.config,
+                nodeId: node.id,
+                sshFolderPath: widget.sshFolderPath,
+                onClose: () => widget.onClose(node.id),
+                onSplitHorizontal: () => widget.onSplit(node.id, true),
+                onSplitVertical: () => widget.onSplit(node.id, false),
+                onDragStart: () => setState(() => _draggingId = node.id),
+                onDragEnd: () => setState(() => _draggingId = null),
+              )
+            : SshTerminalView(
+                key: node.pane.key,
+                config: node.pane.config,
+                nodeId: node.id,
+                sshFolderPath: widget.sshFolderPath,
+                onClose: () => widget.onClose(node.id),
+                onSplitHorizontal: () => widget.onSplit(node.id, true),
+                onSplitVertical: () => widget.onSplit(node.id, false),
+                onDragStart: () => setState(() => _draggingId = node.id),
+                onDragEnd: () => setState(() => _draggingId = null),
+              ),
       );
     }
 
@@ -125,9 +134,11 @@ class _SplitViewState extends State<SplitView> {
         isHorizontal: node.isHorizontal,
         ratios: node.ratios,
         focusZoom: widget.focusZoom,
+        isNested: isNested,
         childBuilder: (onChildFocus) {
           return node.children.asMap().entries.map((entry) {
-            return _buildNode(entry.value, onChildFocus, entry.key);
+            // Children of a container are nested (not full width AND not full height)
+            return _buildNode(entry.value, onChildFocus, entry.key, isNested: true);
           }).toList();
         },
       );
@@ -181,8 +192,6 @@ class _EmptyDropZone extends StatelessWidget {
 class _DraggableTerminal extends StatefulWidget {
   final String nodeId;
   final bool isDragging;
-  final VoidCallback onDragStart;
-  final VoidCallback onDragEnd;
   final void Function(String sourceId, DropPosition position)? onDrop;
   final VoidCallback? onFocusEnter;
   final VoidCallback? onFocusExit;
@@ -191,8 +200,6 @@ class _DraggableTerminal extends StatefulWidget {
   const _DraggableTerminal({
     required this.nodeId,
     required this.isDragging,
-    required this.onDragStart,
-    required this.onDragEnd,
     this.onDrop,
     this.onFocusEnter,
     this.onFocusExit,
@@ -205,12 +212,46 @@ class _DraggableTerminal extends StatefulWidget {
 
 class _DraggableTerminalState extends State<_DraggableTerminal> {
   DropPosition? _hoverPosition;
+  Offset? _lastPointerPosition;
+  final GlobalKey _key = GlobalKey();
+
+  void _updateDropPosition() {
+    if (_lastPointerPosition == null) return;
+
+    final box = _key.currentContext?.findRenderObject() as RenderBox?;
+    if (box == null) return;
+
+    final local = box.globalToLocal(_lastPointerPosition!);
+    final size = box.size;
+
+    // Calculate position relative to center
+    final centerX = size.width / 2;
+    final centerY = size.height / 2;
+    final dx = local.dx - centerX;
+    final dy = local.dy - centerY;
+
+    // Determine zone by which axis has larger offset from center
+    DropPosition pos;
+    if (dx.abs() > dy.abs()) {
+      pos = dx < 0 ? DropPosition.left : DropPosition.right;
+    } else {
+      pos = dy < 0 ? DropPosition.top : DropPosition.bottom;
+    }
+
+    if (pos != _hoverPosition) {
+      setState(() => _hoverPosition = pos);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return MouseRegion(
+      key: _key,
       onEnter: widget.onFocusEnter != null ? (_) => widget.onFocusEnter!() : null,
       onExit: widget.onFocusExit != null ? (_) => widget.onFocusExit!() : null,
+      onHover: (event) {
+        _lastPointerPosition = event.position;
+      },
       child: DragTarget<TerminalDragData>(
         onWillAcceptWithDetails: (details) {
           return details.data.terminalId != widget.nodeId;
@@ -219,35 +260,18 @@ class _DraggableTerminalState extends State<_DraggableTerminal> {
           if (_hoverPosition != null && widget.onDrop != null) {
             widget.onDrop!(details.data.terminalId, _hoverPosition!);
           }
-          setState(() => _hoverPosition = null);
+          setState(() {
+            _hoverPosition = null;
+            _lastPointerPosition = null;
+          });
         },
-        onLeave: (_) => setState(() => _hoverPosition = null),
+        onLeave: (_) => setState(() {
+          _hoverPosition = null;
+          _lastPointerPosition = null;
+        }),
         onMove: (details) {
-          final box = context.findRenderObject() as RenderBox?;
-          if (box == null) return;
-          final local = box.globalToLocal(details.offset);
-          final size = box.size;
-
-          // Calculate position relative to center
-          final centerX = size.width / 2;
-          final centerY = size.height / 2;
-          final dx = local.dx - centerX;
-          final dy = local.dy - centerY;
-
-          // Determine zone by which axis has larger offset from center
-          // This ensures any position maps to exactly one zone
-          DropPosition pos;
-          if (dx.abs() > dy.abs()) {
-            // Horizontal dominant - left or right
-            pos = dx < 0 ? DropPosition.left : DropPosition.right;
-          } else {
-            // Vertical dominant - top or bottom
-            pos = dy < 0 ? DropPosition.top : DropPosition.bottom;
-          }
-
-          if (pos != _hoverPosition) {
-            setState(() => _hoverPosition = pos);
-          }
+          // Use last pointer position from MouseRegion for accurate calculation
+          _updateDropPosition();
         },
         builder: (context, candidateData, rejectedData) {
           final isDragOver = candidateData.isNotEmpty;
@@ -314,11 +338,12 @@ class _DropZoneIndicator extends StatelessWidget {
   }
 }
 
-/// Resizable split container with focus zoom overlay
+/// Resizable split container with focus zoom
 class _SplitContainer extends StatefulWidget {
   final bool isHorizontal;
   final List<double> ratios;
   final double focusZoom;
+  final bool isNested; // true if this container is inside another split
   final List<Widget> Function(void Function(int) onFocus) childBuilder;
 
   const _SplitContainer({
@@ -326,6 +351,7 @@ class _SplitContainer extends StatefulWidget {
     required this.ratios,
     required this.childBuilder,
     this.focusZoom = 1.0,
+    this.isNested = false,
   });
 
   @override
@@ -335,27 +361,11 @@ class _SplitContainer extends StatefulWidget {
 class _SplitContainerState extends State<_SplitContainer> {
   late List<double> _ratios;
   int _focusedIndex = -1;
-  final List<GlobalKey> _childKeys = [];
-  OverlayEntry? _zoomOverlay;
 
   @override
   void initState() {
     super.initState();
     _ratios = List.from(widget.ratios);
-    _initKeys();
-  }
-
-  void _initKeys() {
-    _childKeys.clear();
-    for (var i = 0; i < widget.ratios.length; i++) {
-      _childKeys.add(GlobalKey());
-    }
-  }
-
-  @override
-  void dispose() {
-    _removeZoomOverlay();
-    super.dispose();
   }
 
   @override
@@ -364,57 +374,23 @@ class _SplitContainerState extends State<_SplitContainer> {
     if (widget.ratios.length != _ratios.length) {
       _ratios = List.from(widget.ratios);
       _focusedIndex = -1;
-      _removeZoomOverlay();
-      _initKeys();
     }
   }
 
   void _onFocus(int index) {
     if (_focusedIndex == index) return;
-
-    _removeZoomOverlay();
-    _focusedIndex = index;
-
-    // Only show zoom overlay if zoom is enabled and there are multiple children
-    // and the child doesn't have full width/height (ratio < 1.0)
-    if (index >= 0 &&
-        widget.focusZoom > 1.0 &&
-        _ratios.length > 1 &&
-        _ratios[index] < 0.99) {
-      _showZoomOverlay(index);
-    }
+    setState(() {
+      _focusedIndex = index;
+    });
   }
 
-  void _removeZoomOverlay() {
-    _zoomOverlay?.remove();
-    _zoomOverlay = null;
-  }
-
-  void _showZoomOverlay(int index) {
-    final key = _childKeys[index];
-    final context = key.currentContext;
-    if (context == null) return;
-
-    final box = context.findRenderObject() as RenderBox?;
-    if (box == null) return;
-
-    final position = box.localToGlobal(Offset.zero);
-    final size = box.size;
-
-    // Get the child widget to show in overlay
-    final childWidgets = widget.childBuilder((_) {});
-    if (index >= childWidgets.length) return;
-
-    _zoomOverlay = OverlayEntry(
-      builder: (context) => _ZoomOverlay(
-        position: position,
-        size: size,
-        scale: widget.focusZoom,
-        child: childWidgets[index],
-      ),
-    );
-
-    Overlay.of(this.context).insert(_zoomOverlay!);
+  // Check if zoom should be applied to this child
+  bool _shouldZoom(int index) {
+    if (widget.focusZoom <= 1.0) return false;
+    if (_focusedIndex != index) return false;
+    // Only zoom if nested (meaning not full width AND not full height)
+    // A non-nested split means all children have full height (horizontal) or full width (vertical)
+    return widget.isNested;
   }
 
   @override
@@ -434,13 +410,29 @@ class _SplitContainerState extends State<_SplitContainer> {
         final children = <Widget>[];
         for (var i = 0; i < childWidgets.length; i++) {
           final size = availableSize * _ratios[i];
+          final shouldZoom = _shouldZoom(i);
+
+          Widget child = childWidgets[i];
+
+          // Apply zoom with Transform.scale - this scales visually without changing constraints
+          if (shouldZoom) {
+            child = Transform.scale(
+              scale: widget.focusZoom,
+              child: Material(
+                elevation: 8,
+                shadowColor: Colors.black54,
+                borderRadius: BorderRadius.circular(4),
+                clipBehavior: Clip.antiAlias,
+                child: child,
+              ),
+            );
+          }
 
           children.add(
             SizedBox(
-              key: _childKeys[i],
               width: widget.isHorizontal ? size : null,
               height: widget.isHorizontal ? null : size,
-              child: childWidgets[i],
+              child: child,
             ),
           );
 
@@ -463,6 +455,7 @@ class _SplitContainerState extends State<_SplitContainer> {
           }
         }
 
+        // Allow zoomed content to overflow
         return widget.isHorizontal
             ? Row(children: children)
             : Column(children: children);
@@ -492,78 +485,3 @@ class _SplitContainerState extends State<_SplitContainer> {
   }
 }
 
-/// Zoom overlay that shows scaled terminal above other content
-class _ZoomOverlay extends StatefulWidget {
-  final Offset position;
-  final Size size;
-  final double scale;
-  final Widget child;
-
-  const _ZoomOverlay({
-    required this.position,
-    required this.size,
-    required this.scale,
-    required this.child,
-  });
-
-  @override
-  State<_ZoomOverlay> createState() => _ZoomOverlayState();
-}
-
-class _ZoomOverlayState extends State<_ZoomOverlay>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-  late Animation<double> _scaleAnimation;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      duration: const Duration(milliseconds: 150),
-      vsync: this,
-    );
-    _scaleAnimation = Tween<double>(begin: 1.0, end: widget.scale).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeOut),
-    );
-    _controller.forward();
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    // Calculate center position
-    final centerX = widget.position.dx + widget.size.width / 2;
-    final centerY = widget.position.dy + widget.size.height / 2;
-
-    return AnimatedBuilder(
-      animation: _scaleAnimation,
-      builder: (context, child) {
-        final scale = _scaleAnimation.value;
-        final scaledWidth = widget.size.width * scale;
-        final scaledHeight = widget.size.height * scale;
-
-        return Positioned(
-          left: centerX - scaledWidth / 2,
-          top: centerY - scaledHeight / 2,
-          width: scaledWidth,
-          height: scaledHeight,
-          child: IgnorePointer(
-            child: Material(
-              elevation: 8,
-              shadowColor: Colors.black54,
-              borderRadius: BorderRadius.circular(8),
-              clipBehavior: Clip.antiAlias,
-              child: child,
-            ),
-          ),
-        );
-      },
-      child: widget.child,
-    );
-  }
-}

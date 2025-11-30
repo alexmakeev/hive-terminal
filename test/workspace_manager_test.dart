@@ -180,6 +180,44 @@ void main() {
       expect(restored.privateKey, '/path/to/id_rsa');
       expect(restored.passphrase, 'my-secret-passphrase');
     });
+
+    test('toJson and fromJson preserve protocol', () {
+      final sshConfig = ConnectionConfig(
+        id: 'ssh-test',
+        name: 'SSH Server',
+        host: 'ssh.example.com',
+        username: 'user',
+        protocol: ConnectionProtocol.ssh,
+      );
+
+      final moshConfig = ConnectionConfig(
+        id: 'mosh-test',
+        name: 'MOSH Server',
+        host: 'mosh.example.com',
+        username: 'user',
+        protocol: ConnectionProtocol.mosh,
+      );
+
+      final sshJson = sshConfig.toJson();
+      final moshJson = moshConfig.toJson();
+      final restoredSsh = ConnectionConfig.fromJson(sshJson);
+      final restoredMosh = ConnectionConfig.fromJson(moshJson);
+
+      expect(restoredSsh.protocol, ConnectionProtocol.ssh);
+      expect(restoredMosh.protocol, ConnectionProtocol.mosh);
+    });
+
+    test('fromJson defaults to SSH protocol when not specified', () {
+      final json = {
+        'id': 'test',
+        'name': 'Server',
+        'host': 'localhost',
+        'username': 'user',
+      };
+
+      final config = ConnectionConfig.fromJson(json);
+      expect(config.protocol, ConnectionProtocol.ssh);
+    });
   });
 
   group('SplitContainerNode', () {

@@ -67,6 +67,12 @@ class AiCliCommand {
   ];
 }
 
+/// Connection protocol
+enum ConnectionProtocol {
+  ssh,
+  mosh,
+}
+
 /// Connection configuration
 class ConnectionConfig {
   final String id;
@@ -79,6 +85,7 @@ class ConnectionConfig {
   final String? passphrase;
   final String? startupCommand;
   final bool useDefaultKeys;
+  final ConnectionProtocol protocol;
 
   const ConnectionConfig({
     required this.id,
@@ -91,6 +98,7 @@ class ConnectionConfig {
     this.passphrase,
     this.startupCommand,
     this.useDefaultKeys = true,
+    this.protocol = ConnectionProtocol.ssh,
   });
 
   Map<String, dynamic> toJson() => {
@@ -103,6 +111,7 @@ class ConnectionConfig {
         'passphrase': passphrase,
         'startupCommand': startupCommand,
         'useDefaultKeys': useDefaultKeys,
+        'protocol': protocol.name,
       };
 
   factory ConnectionConfig.fromJson(Map<String, dynamic> json) {
@@ -116,6 +125,10 @@ class ConnectionConfig {
       passphrase: json['passphrase'] as String?,
       startupCommand: json['startupCommand'] as String?,
       useDefaultKeys: json['useDefaultKeys'] as bool? ?? true,
+      protocol: ConnectionProtocol.values.firstWhere(
+        (p) => p.name == json['protocol'],
+        orElse: () => ConnectionProtocol.ssh,
+      ),
     );
   }
 }
@@ -206,43 +219,62 @@ class SshSession {
       // Common key file names
       final keyNames = ['id_ed25519', 'id_rsa', 'id_ecdsa'];
 
+      // Ask for passphrase once (if needed and not already saved)
+      String? passphraseForKeys = config.passphrase;
+      bool passphraseAsked = false;
+
       for (final name in keyNames) {
         final keyFile = File('${sshDir.path}/$name');
         if (await keyFile.exists()) {
           try {
             final keyContent = await keyFile.readAsString();
-            // Try with config passphrase first
-            final keyPairs = SSHKeyPair.fromPem(keyContent, config.passphrase);
-            keys.addAll(keyPairs);
-            terminal.write('Loaded key: $name\r\n');
-          } catch (e) {
-            final errorMsg = e.toString();
-            final needsPassphrase = errorMsg.contains('passphrase') ||
-                                    errorMsg.contains('decrypt') ||
-                                    errorMsg.contains('encrypted');
+            // First try without passphrase
+            try {
+              final keyPairs = SSHKeyPair.fromPem(keyContent);
+              keys.addAll(keyPairs);
+              terminal.write('Loaded key: $name\r\n');
+              continue;
+            } catch (_) {
+              // Key might be encrypted, try with passphrase
+            }
 
-            if (needsPassphrase && onPassphraseRequest != null) {
-              // Ask user for passphrase
+            // Try with saved/cached passphrase
+            if (passphraseForKeys != null && passphraseForKeys.isNotEmpty) {
+              try {
+                final keyPairs = SSHKeyPair.fromPem(keyContent, passphraseForKeys);
+                keys.addAll(keyPairs);
+                terminal.write('Loaded key: $name\r\n');
+                continue;
+              } catch (_) {
+                // Passphrase didn't work for this key
+              }
+            }
+
+            // Ask for passphrase only ONCE if not already asked and no saved passphrase
+            if (!passphraseAsked && onPassphraseRequest != null &&
+                (passphraseForKeys == null || passphraseForKeys.isEmpty)) {
               terminal.write('\x1B[33mKey $name requires passphrase...\x1B[0m\r\n');
-              final passphrase = await onPassphraseRequest!(name);
+              final userPassphrase = await onPassphraseRequest!(name);
+              passphraseAsked = true;
 
-              if (passphrase != null && passphrase.isNotEmpty) {
+              if (userPassphrase != null && userPassphrase.isNotEmpty) {
+                passphraseForKeys = userPassphrase;
                 try {
-                  final keyContent = await keyFile.readAsString();
-                  final keyPairs = SSHKeyPair.fromPem(keyContent, passphrase);
+                  final keyPairs = SSHKeyPair.fromPem(keyContent, passphraseForKeys);
                   keys.addAll(keyPairs);
                   terminal.write('Loaded key: $name (with passphrase)\r\n');
-                } catch (e2) {
+                  continue;
+                } catch (_) {
                   errors.add('$name: invalid passphrase');
                 }
               } else {
                 errors.add('$name: passphrase not provided');
               }
-            } else if (needsPassphrase) {
-              errors.add('$name: needs passphrase');
             } else {
-              errors.add('$name: $errorMsg');
+              errors.add('$name: needs passphrase');
             }
+          } catch (e) {
+            errors.add('$name: ${e.toString()}');
           }
         }
       }

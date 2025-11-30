@@ -62,6 +62,10 @@ dependencies:
   # File picker for folder selection
   file_picker: ^8.0.0
 
+  # MOSH client (local package)
+  mosh_client:
+    path: packages/mosh_client
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

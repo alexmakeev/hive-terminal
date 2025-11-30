@@ -15,6 +15,8 @@ class SshTerminalView extends StatefulWidget {
   final VoidCallback? onClose;
   final VoidCallback? onSplitHorizontal;
   final VoidCallback? onSplitVertical;
+  final VoidCallback? onDragStart;
+  final VoidCallback? onDragEnd;
   final bool showControls;
   final String? sshFolderPath;
 
@@ -25,6 +27,8 @@ class SshTerminalView extends StatefulWidget {
     this.onClose,
     this.onSplitHorizontal,
     this.onSplitVertical,
+    this.onDragStart,
+    this.onDragEnd,
     this.showControls = true,
     this.sshFolderPath,
   });
@@ -330,6 +334,8 @@ class _SshTerminalViewState extends State<SshTerminalView>
     if (widget.nodeId != null && !_isMobile) {
       return Draggable<TerminalDragData>(
         data: TerminalDragData(terminalId: widget.nodeId!),
+        onDragStarted: widget.onDragStart,
+        onDragEnd: (_) => widget.onDragEnd?.call(),
         feedback: Material(
           elevation: 4,
           borderRadius: BorderRadius.circular(4),
