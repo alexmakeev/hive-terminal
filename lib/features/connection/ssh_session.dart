@@ -129,6 +129,7 @@ class SshSession {
   final ConnectionConfig config;
   final Terminal terminal;
   final void Function(SessionState state)? onStateChange;
+  final Future<String?> Function(String keyName)? onPassphraseRequest;
   final String? sshFolderPath;
 
   SSHClient? _client;
@@ -141,6 +142,7 @@ class SshSession {
     required this.config,
     required this.terminal,
     this.onStateChange,
+    this.onPassphraseRequest,
     this.sshFolderPath,
   });
 
@@ -205,12 +207,34 @@ class SshSession {
         if (await keyFile.exists()) {
           try {
             final keyContent = await keyFile.readAsString();
+            // Try with config passphrase first
             final keyPairs = SSHKeyPair.fromPem(keyContent, config.passphrase);
             keys.addAll(keyPairs);
             terminal.write('Loaded key: $name\r\n');
           } catch (e) {
             final errorMsg = e.toString();
-            if (errorMsg.contains('passphrase') || errorMsg.contains('decrypt') || errorMsg.contains('encrypted')) {
+            final needsPassphrase = errorMsg.contains('passphrase') ||
+                                    errorMsg.contains('decrypt') ||
+                                    errorMsg.contains('encrypted');
+
+            if (needsPassphrase && onPassphraseRequest != null) {
+              // Ask user for passphrase
+              terminal.write('\x1B[33mKey $name requires passphrase...\x1B[0m\r\n');
+              final passphrase = await onPassphraseRequest!(name);
+
+              if (passphrase != null && passphrase.isNotEmpty) {
+                try {
+                  final keyContent = await keyFile.readAsString();
+                  final keyPairs = SSHKeyPair.fromPem(keyContent, passphrase);
+                  keys.addAll(keyPairs);
+                  terminal.write('Loaded key: $name (with passphrase)\r\n');
+                } catch (e2) {
+                  errors.add('$name: invalid passphrase');
+                }
+              } else {
+                errors.add('$name: passphrase not provided');
+              }
+            } else if (needsPassphrase) {
               errors.add('$name: needs passphrase');
             } else {
               errors.add('$name: $errorMsg');

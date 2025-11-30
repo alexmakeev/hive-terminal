@@ -188,4 +188,123 @@ void main() {
       expect(container.ratios[1], 0.5);
     });
   });
+
+  group('Flatten split structure (Phase 5)', () {
+    late WorkspaceManager manager;
+    late ConnectionConfig config1;
+    late ConnectionConfig config2;
+    late ConnectionConfig config3;
+
+    setUp(() {
+      manager = WorkspaceManager();
+      config1 = ConnectionConfig(id: 't1', name: 'S1', host: 'h1', username: 'u');
+      config2 = ConnectionConfig(id: 't2', name: 'S2', host: 'h2', username: 'u');
+      config3 = ConnectionConfig(id: 't3', name: 'S3', host: 'h3', username: 'u');
+    });
+
+    test('split same direction flattens to single container', () {
+      // Add first two terminals (creates horizontal split)
+      manager.addTerminal(config1);
+      manager.addTerminal(config2);
+
+      // Get the second terminal's id
+      final container = manager.currentWorkspace!.root as SplitContainerNode;
+      final secondNodeId = container.children[1].id;
+
+      // Split second terminal horizontally (same direction)
+      manager.splitTerminal(secondNodeId, config3, true);
+
+      // Should flatten: [A, B, C] not [A, [B, C]]
+      final newRoot = manager.currentWorkspace!.root as SplitContainerNode;
+      expect(newRoot.children.length, 3);
+      expect(newRoot.isHorizontal, isTrue);
+    });
+
+    test('split different direction creates nested container', () {
+      // Add first two terminals (creates horizontal split)
+      manager.addTerminal(config1);
+      manager.addTerminal(config2);
+
+      final container = manager.currentWorkspace!.root as SplitContainerNode;
+      final secondNodeId = container.children[1].id;
+
+      // Split second terminal vertically (different direction)
+      manager.splitTerminal(secondNodeId, config3, false);
+
+      // Should nest: [A, [B, C]]
+      final newRoot = manager.currentWorkspace!.root as SplitContainerNode;
+      expect(newRoot.children.length, 2);
+      expect(newRoot.children[1], isA<SplitContainerNode>());
+
+      final nested = newRoot.children[1] as SplitContainerNode;
+      expect(nested.isHorizontal, isFalse);
+      expect(nested.children.length, 2);
+    });
+  });
+
+  group('Move terminal (Phase 6)', () {
+    late WorkspaceManager manager;
+    late ConnectionConfig config1;
+    late ConnectionConfig config2;
+    late ConnectionConfig config3;
+
+    setUp(() {
+      manager = WorkspaceManager();
+      config1 = ConnectionConfig(id: 't1', name: 'S1', host: 'h1', username: 'u');
+      config2 = ConnectionConfig(id: 't2', name: 'S2', host: 'h2', username: 'u');
+      config3 = ConnectionConfig(id: 't3', name: 'S3', host: 'h3', username: 'u');
+    });
+
+    test('move terminal to left of another', () {
+      manager.addTerminal(config1);
+      manager.addTerminal(config2);
+
+      final container = manager.currentWorkspace!.root as SplitContainerNode;
+      final firstId = container.children[0].id;
+      final secondId = container.children[1].id;
+
+      // Move second to left of first
+      manager.moveTerminal(secondId, firstId, DropPosition.left);
+
+      // Order should be reversed
+      final newRoot = manager.currentWorkspace!.root as SplitContainerNode;
+      expect(newRoot.children.length, 2);
+      // Second terminal should now be first
+      expect((newRoot.children[0] as TerminalNode).pane.config.name, 'S2');
+      expect((newRoot.children[1] as TerminalNode).pane.config.name, 'S1');
+    });
+
+    test('move terminal to bottom creates vertical split', () {
+      manager.addTerminal(config1);
+      manager.addTerminal(config2);
+
+      final container = manager.currentWorkspace!.root as SplitContainerNode;
+      final firstId = container.children[0].id;
+      final secondId = container.children[1].id;
+
+      // Move second to bottom of first (creates vertical split)
+      manager.moveTerminal(secondId, firstId, DropPosition.bottom);
+
+      // Root should now be a vertical split with first and second stacked
+      final newRoot = manager.currentWorkspace!.root as SplitContainerNode;
+      expect(newRoot.isHorizontal, isFalse);
+      expect(newRoot.children.length, 2);
+    });
+
+    test('move terminal to same position keeps structure', () {
+      manager.addTerminal(config1);
+      manager.addTerminal(config2);
+
+      final container = manager.currentWorkspace!.root as SplitContainerNode;
+      final firstId = container.children[0].id;
+      final secondId = container.children[1].id;
+
+      // Move second to right of first (same position)
+      manager.moveTerminal(secondId, firstId, DropPosition.right);
+
+      // Should still have two terminals
+      final newRoot = manager.currentWorkspace!.root as SplitContainerNode;
+      expect(newRoot.children.length, 2);
+    });
+  });
 }

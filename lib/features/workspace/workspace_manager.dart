@@ -3,6 +3,9 @@ import 'package:uuid/uuid.dart';
 
 import '../connection/ssh_session.dart';
 
+/// Drop position for drag & drop
+enum DropPosition { left, right, top, bottom }
+
 /// Represents a single terminal pane in a workspace
 class TerminalPane {
   final String id;
@@ -151,6 +154,21 @@ class WorkspaceManager extends ChangeNotifier {
     }
 
     if (node is SplitContainerNode) {
+      // Check if target is a direct child and direction matches (flatten case)
+      final targetIndex = node.children.indexWhere((c) => c.id == targetId);
+      if (targetIndex != -1 && node.isHorizontal == horizontal) {
+        // Flatten: insert new node after target in same container
+        final newChildren = List<SplitNode>.from(node.children);
+        newChildren.insert(targetIndex + 1, newNode);
+        return SplitContainerNode(
+          id: node.id,
+          isHorizontal: horizontal,
+          children: newChildren,
+          ratios: _redistributeRatios(node.ratios, targetIndex),
+        );
+      }
+
+      // Recurse into children
       return SplitContainerNode(
         id: node.id,
         isHorizontal: node.isHorizontal,
@@ -162,6 +180,115 @@ class WorkspaceManager extends ChangeNotifier {
     }
 
     return node;
+  }
+
+  /// Redistribute ratios when adding a new child after targetIndex
+  List<double> _redistributeRatios(List<double> oldRatios, int targetIndex) {
+    final count = oldRatios.length + 1;
+    final newRatios = <double>[];
+
+    // Take space proportionally from all panels
+    final shrinkFactor = (count - 1) / count;
+    final newPanelRatio = 1.0 / count;
+
+    for (var i = 0; i < oldRatios.length; i++) {
+      newRatios.add(oldRatios[i] * shrinkFactor);
+      if (i == targetIndex) {
+        newRatios.add(newPanelRatio);
+      }
+    }
+
+    return newRatios;
+  }
+
+  /// Move terminal from one location to another
+  void moveTerminal(String sourceId, String targetId, DropPosition position) {
+    if (currentWorkspace?.root == null) return;
+
+    // Find and extract the source node
+    final sourceNode = _findNode(currentWorkspace!.root!, sourceId);
+    if (sourceNode == null || sourceNode is! TerminalNode) return;
+
+    // Remove source from current position
+    currentWorkspace!.root = _removeNode(currentWorkspace!.root!, sourceId);
+    if (currentWorkspace!.root == null) {
+      // Was the only terminal
+      currentWorkspace!.root = sourceNode;
+      notifyListeners();
+      return;
+    }
+
+    // Insert at new position
+    final horizontal = position == DropPosition.left || position == DropPosition.right;
+    final insertBefore = position == DropPosition.left || position == DropPosition.top;
+
+    currentWorkspace!.root = _insertNode(
+      currentWorkspace!.root!,
+      targetId,
+      sourceNode,
+      horizontal,
+      insertBefore,
+    );
+    notifyListeners();
+  }
+
+  SplitNode? _findNode(SplitNode node, String targetId) {
+    if (node.id == targetId) return node;
+    if (node is SplitContainerNode) {
+      for (final child in node.children) {
+        final found = _findNode(child, targetId);
+        if (found != null) return found;
+      }
+    }
+    return null;
+  }
+
+  SplitNode _insertNode(
+    SplitNode node,
+    String targetId,
+    TerminalNode newNode,
+    bool horizontal,
+    bool insertBefore,
+  ) {
+    if (node.id == targetId) {
+      final children = insertBefore ? [newNode, node] : [node, newNode];
+      return SplitContainerNode(
+        isHorizontal: horizontal,
+        children: children,
+      );
+    }
+
+    if (node is SplitContainerNode) {
+      // Check if target is a direct child and direction matches
+      final targetIndex = node.children.indexWhere((c) => c.id == targetId);
+      if (targetIndex != -1 && node.isHorizontal == horizontal) {
+        final newChildren = List<SplitNode>.from(node.children);
+        final insertIndex = insertBefore ? targetIndex : targetIndex + 1;
+        newChildren.insert(insertIndex, newNode);
+        return SplitContainerNode(
+          id: node.id,
+          isHorizontal: horizontal,
+          children: newChildren,
+          ratios: _equalRatios(newChildren.length),
+        );
+      }
+
+      // Recurse
+      return SplitContainerNode(
+        id: node.id,
+        isHorizontal: node.isHorizontal,
+        children: node.children
+            .map((child) => _insertNode(child, targetId, newNode, horizontal, insertBefore))
+            .toList(),
+        ratios: node.ratios,
+      );
+    }
+
+    return node;
+  }
+
+  List<double> _equalRatios(int count) {
+    return List.filled(count, 1.0 / count);
   }
 
   void closeTerminal(String nodeId) {

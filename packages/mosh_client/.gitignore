@@ -1,0 +1,11 @@
+# Mosh source (downloaded during build)
+mosh-1.4.0/
+mosh-*.tar.gz
+
+# Build artifacts
+build/
+.dart_tool/
+
+# IDE
+.idea/
+*.iml

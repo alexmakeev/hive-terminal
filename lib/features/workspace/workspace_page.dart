@@ -5,8 +5,9 @@ import 'package:flutter/material.dart';
 import '../connection/connection_dialog.dart';
 import '../connection/connection_repository.dart';
 import '../connection/saved_connections_page.dart';
-import '../connection/ssh_folder_manager.dart';
 import '../connection/ssh_session.dart';
+import '../settings/settings_manager.dart';
+import '../settings/settings_page.dart';
 import 'split_view.dart';
 import 'workspace_manager.dart';
 
@@ -27,30 +28,27 @@ class WorkspacePage extends StatefulWidget {
 
 class _WorkspacePageState extends State<WorkspacePage> {
   late final WorkspaceManager _manager;
-  late final PageController _pageController;
   late final ConnectionRepository _connectionRepository;
-  late final SshFolderManager _sshFolderManager;
+  late final SettingsManager _settings;
 
   @override
   void initState() {
     super.initState();
     _manager = WorkspaceManager();
-    _pageController = PageController(initialPage: _manager.currentIndex);
     _connectionRepository = ConnectionRepository();
-    _sshFolderManager = SshFolderManager();
+    _settings = SettingsManager();
     _connectionRepository.load();
-    _sshFolderManager.load();
+    _settings.load();
     _manager.addListener(_onManagerChanged);
     _connectionRepository.addListener(_onRepositoryChanged);
-    _sshFolderManager.addListener(_onSshFolderChanged);
+    _settings.addListener(_onSettingsChanged);
   }
 
   @override
   void dispose() {
     _manager.removeListener(_onManagerChanged);
     _connectionRepository.removeListener(_onRepositoryChanged);
-    _sshFolderManager.removeListener(_onSshFolderChanged);
-    _pageController.dispose();
+    _settings.removeListener(_onSettingsChanged);
     super.dispose();
   }
 
@@ -58,21 +56,12 @@ class _WorkspacePageState extends State<WorkspacePage> {
     if (mounted) setState(() {});
   }
 
-  void _onSshFolderChanged() {
+  void _onSettingsChanged() {
     if (mounted) setState(() {});
   }
 
   void _onManagerChanged() {
-    setState(() {});
-    // Sync page controller with manager
-    if (_pageController.hasClients &&
-        _pageController.page?.round() != _manager.currentIndex) {
-      _pageController.animateToPage(
-        _manager.currentIndex,
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeInOut,
-      );
-    }
+    if (mounted) setState(() {});
   }
 
   @override
@@ -97,13 +86,15 @@ class _WorkspacePageState extends State<WorkspacePage> {
             tooltip: 'Saved Connections',
             onPressed: _openSavedConnections,
           ),
+          IconButton(
+            icon: const Icon(Icons.settings),
+            tooltip: 'Settings',
+            onPressed: _openSettings,
+          ),
           PopupMenuButton<String>(
             icon: const Icon(Icons.more_vert),
             onSelected: (value) {
               switch (value) {
-                case 'ssh_folder':
-                  _selectSshFolder();
-                  break;
                 case 'check_updates':
                   widget.onCheckForUpdates?.call();
                   break;
@@ -113,30 +104,6 @@ class _WorkspacePageState extends State<WorkspacePage> {
               }
             },
             itemBuilder: (context) => [
-              if (Platform.isMacOS || Platform.isLinux)
-                PopupMenuItem(
-                  value: 'ssh_folder',
-                  child: ListTile(
-                    leading: Icon(
-                      Icons.folder_open,
-                      color: _sshFolderManager.hasAccess ? null : Colors.orange,
-                    ),
-                    title: Text(_sshFolderManager.hasAccess
-                        ? 'SSH Folder'
-                        : 'Select SSH Folder'),
-                    subtitle: _sshFolderManager.hasAccess
-                        ? Text(
-                            _sshFolderManager.sshFolderPath!.split('/').last,
-                            style: const TextStyle(fontSize: 10),
-                          )
-                        : const Text(
-                            'Required for key auth',
-                            style: TextStyle(fontSize: 10, color: Colors.orange),
-                          ),
-                    contentPadding: EdgeInsets.zero,
-                    visualDensity: VisualDensity.compact,
-                  ),
-                ),
               const PopupMenuItem(
                 value: 'check_updates',
                 child: ListTile(
@@ -164,26 +131,14 @@ class _WorkspacePageState extends State<WorkspacePage> {
           // Workspace tabs (optional, for desktop)
           if (_isDesktop) _buildWorkspaceTabs(),
 
-          // Main content
+          // Main content - IndexedStack keeps all workspaces alive
           Expanded(
-            child: PageView.builder(
-              controller: _pageController,
-              onPageChanged: (index) {
-                if (index == _manager.workspaces.length) {
-                  // Swiped to "add new" page
-                  _manager.addWorkspace();
-                } else {
-                  _manager.setCurrentIndex(index);
-                }
-              },
-              itemCount: _manager.workspaces.length + 1, // +1 for "add new" page
-              itemBuilder: (context, index) {
-                if (index == _manager.workspaces.length) {
-                  // "Add new workspace" page
-                  return _buildAddWorkspacePage();
-                }
-                return _buildWorkspace(_manager.workspaces[index]);
-              },
+            child: IndexedStack(
+              index: _manager.currentIndex,
+              children: [
+                for (final workspace in _manager.workspaces)
+                  _buildWorkspace(workspace),
+              ],
             ),
           ),
 
@@ -285,13 +240,17 @@ class _WorkspacePageState extends State<WorkspacePage> {
       padding: const EdgeInsets.all(8),
       child: SplitView(
         node: workspace.root!,
-        sshFolderPath: _sshFolderManager.sshFolderPath,
+        sshFolderPath: _settings.sshFolderPath,
+        focusZoom: _settings.focusZoom,
         onClose: (nodeId) => _manager.closeTerminal(nodeId),
         onSplit: (nodeId, horizontal) async {
           final result = await _showConnectionChooser();
           if (result != null) {
             _manager.splitTerminal(nodeId, result, horizontal);
           }
+        },
+        onMove: (sourceId, targetId, position) {
+          _manager.moveTerminal(sourceId, targetId, position);
         },
       ),
     );
@@ -431,18 +390,12 @@ class _WorkspacePageState extends State<WorkspacePage> {
     );
   }
 
-  Future<void> _selectSshFolder() async {
-    final success = await _sshFolderManager.selectFolder();
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(success
-              ? 'SSH folder selected: ${_sshFolderManager.sshFolderPath}'
-              : 'Failed to access folder'),
-          duration: const Duration(seconds: 2),
-        ),
-      );
-    }
+  void _openSettings() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => SettingsPage(settings: _settings),
+      ),
+    );
   }
 
   void _openSavedConnections() {

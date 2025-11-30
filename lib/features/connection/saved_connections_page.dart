@@ -95,6 +95,7 @@ class _SavedConnectionsPageState extends State<SavedConnectionsPage> {
   Widget _buildConnectionsList(List<ConnectionConfig> connections) {
     return ReorderableListView.builder(
       padding: const EdgeInsets.symmetric(vertical: 8),
+      buildDefaultDragHandles: false,
       itemCount: connections.length,
       onReorder: (oldIndex, newIndex) {
         widget.repository.reorder(oldIndex, newIndex);
