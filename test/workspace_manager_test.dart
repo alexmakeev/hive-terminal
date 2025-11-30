@@ -163,6 +163,23 @@ void main() {
       final config = ConnectionConfig.fromJson(json);
       expect(config.port, 22);
     });
+
+    test('toJson and fromJson preserve privateKey and passphrase', () {
+      final config = ConnectionConfig(
+        id: 'key-test',
+        name: 'Key Server',
+        host: 'key.example.com',
+        username: 'keyuser',
+        privateKey: '/path/to/id_rsa',
+        passphrase: 'my-secret-passphrase',
+      );
+
+      final json = config.toJson();
+      final restored = ConnectionConfig.fromJson(json);
+
+      expect(restored.privateKey, '/path/to/id_rsa');
+      expect(restored.passphrase, 'my-secret-passphrase');
+    });
   });
 
   group('SplitContainerNode', () {

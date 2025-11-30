@@ -99,6 +99,8 @@ class ConnectionConfig {
         'host': host,
         'port': port,
         'username': username,
+        'privateKey': privateKey,
+        'passphrase': passphrase,
         'startupCommand': startupCommand,
         'useDefaultKeys': useDefaultKeys,
       };
@@ -110,6 +112,8 @@ class ConnectionConfig {
       host: json['host'] as String,
       port: json['port'] as int? ?? 22,
       username: json['username'] as String,
+      privateKey: json['privateKey'] as String?,
+      passphrase: json['passphrase'] as String?,
       startupCommand: json['startupCommand'] as String?,
       useDefaultKeys: json['useDefaultKeys'] as bool? ?? true,
     );
