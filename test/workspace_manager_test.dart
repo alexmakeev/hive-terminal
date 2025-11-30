@@ -246,13 +246,11 @@ void main() {
     late WorkspaceManager manager;
     late ConnectionConfig config1;
     late ConnectionConfig config2;
-    late ConnectionConfig config3;
 
     setUp(() {
       manager = WorkspaceManager();
       config1 = ConnectionConfig(id: 't1', name: 'S1', host: 'h1', username: 'u');
       config2 = ConnectionConfig(id: 't2', name: 'S2', host: 'h2', username: 'u');
-      config3 = ConnectionConfig(id: 't3', name: 'S3', host: 'h3', username: 'u');
     });
 
     test('move terminal to left of another', () {

@@ -315,39 +315,6 @@ class _WorkspacePageState extends State<WorkspacePage> {
     );
   }
 
-  Widget _buildAddWorkspacePage() {
-    final theme = Theme.of(context);
-
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.add_box_outlined,
-            size: 64,
-            color: theme.colorScheme.onSurface.withValues(alpha: 0.3),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'New Workspace',
-            style: TextStyle(
-              fontSize: 16,
-              color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Swipe to create',
-            style: TextStyle(
-              fontSize: 12,
-              color: theme.colorScheme.onSurface.withValues(alpha: 0.3),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildPageIndicator() {
     return Container(
       height: 32,
