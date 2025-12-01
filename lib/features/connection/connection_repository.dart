@@ -164,6 +164,7 @@ class ConnectionRepository extends ChangeNotifier {
       passphrase: passphrase,
       startupCommand: config.startupCommand,
       useDefaultKeys: config.useDefaultKeys,
+      protocol: config.protocol,
     );
   }
 

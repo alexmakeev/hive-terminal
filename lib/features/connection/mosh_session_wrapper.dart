@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:dartssh2/dartssh2.dart';
 import 'package:mosh_client/mosh_client.dart';
@@ -111,17 +112,27 @@ class MoshSessionWrapper {
 
       final socket = await SSHSocket.connect(config.host, config.port);
 
-      // Build identities
+      // Build identities - same logic as SshSession
       final identities = <SSHKeyPair>[];
-      if (config.privateKey != null && config.privateKey!.isNotEmpty) {
+      final hasExplicitKey = config.privateKey != null && config.privateKey!.isNotEmpty;
+
+      if (hasExplicitKey) {
+        // Use explicit private key
         try {
           identities.addAll(SSHKeyPair.fromPem(
             config.privateKey!,
             config.passphrase,
           ));
+          terminal.write('Using provided private key.\r\n');
         } catch (e) {
           terminal.write('\x1B[31mFailed to load private key: $e\x1B[0m\r\n');
         }
+      }
+
+      // Load default keys if enabled and no explicit key or as fallback
+      if (config.useDefaultKeys && !hasExplicitKey) {
+        final defaultKeys = await _loadDefaultKeys();
+        identities.addAll(defaultKeys);
       }
 
       client = SSHClient(
@@ -233,6 +244,99 @@ class MoshSessionWrapper {
 
   void dispose() {
     disconnect();
+  }
+
+  /// Load default SSH keys from ~/.ssh folder
+  Future<List<SSHKeyPair>> _loadDefaultKeys() async {
+    final keys = <SSHKeyPair>[];
+    final errors = <String>[];
+
+    // Use provided folder path only (don't try default on macOS - causes hangs)
+    String? sshPath = sshFolderPath;
+
+    if (sshPath == null) {
+      if (Platform.isMacOS) {
+        terminal.write('\x1B[33mSSH folder not selected. Use menu → Select SSH Folder\x1B[0m\r\n');
+        return keys;
+      } else {
+        final home = Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'];
+        if (home != null) {
+          sshPath = '$home/.ssh';
+        }
+      }
+    }
+
+    if (sshPath == null) {
+      terminal.write('\x1B[33mWarning: SSH folder not configured\x1B[0m\r\n');
+      return keys;
+    }
+
+    try {
+      final sshDir = Directory(sshPath);
+
+      final exists = await sshDir.exists().timeout(
+        const Duration(seconds: 2),
+        onTimeout: () {
+          terminal.write('\x1B[33mWarning: SSH folder access timeout\x1B[0m\r\n');
+          return false;
+        },
+      );
+
+      if (!exists) {
+        terminal.write('\x1B[33mWarning: SSH folder not found: $sshPath\x1B[0m\r\n');
+        return keys;
+      }
+
+      final keyNames = ['id_ed25519', 'id_rsa', 'id_ecdsa'];
+
+      for (final name in keyNames) {
+        final keyFile = File('${sshDir.path}/$name');
+        if (await keyFile.exists()) {
+          try {
+            final keyContent = await keyFile.readAsString();
+            // Try with config passphrase first (or no passphrase if null)
+            final keyPairs = SSHKeyPair.fromPem(keyContent, config.passphrase);
+            keys.addAll(keyPairs);
+            terminal.write('Loaded key: $name\r\n');
+          } catch (e) {
+            final errorMsg = e.toString();
+            final needsPassphrase = errorMsg.contains('passphrase') ||
+                                    errorMsg.contains('decrypt') ||
+                                    errorMsg.contains('encrypted');
+
+            if (needsPassphrase && onPassphraseRequest != null) {
+              terminal.write('\x1B[33mKey $name requires passphrase...\x1B[0m\r\n');
+              final passphrase = await onPassphraseRequest!(name);
+
+              if (passphrase != null && passphrase.isNotEmpty) {
+                try {
+                  final keyContent = await keyFile.readAsString();
+                  final keyPairs = SSHKeyPair.fromPem(keyContent, passphrase);
+                  keys.addAll(keyPairs);
+                  terminal.write('Loaded key: $name (with passphrase)\r\n');
+                } catch (e2) {
+                  errors.add('$name: invalid passphrase');
+                }
+              } else {
+                errors.add('$name: passphrase not provided');
+              }
+            } else if (needsPassphrase) {
+              errors.add('$name: needs passphrase');
+            } else {
+              errors.add('$name: $errorMsg');
+            }
+          }
+        }
+      }
+
+      for (final err in errors) {
+        terminal.write('\x1B[33mFailed to load $err\x1B[0m\r\n');
+      }
+    } catch (e) {
+      terminal.write('\x1B[31mError loading SSH keys: $e\x1B[0m\r\n');
+    }
+
+    return keys;
   }
 }
 

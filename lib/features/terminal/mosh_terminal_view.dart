@@ -60,6 +60,7 @@ class _MoshTerminalViewState extends State<MoshTerminalView> {
       config: widget.config,
       terminal: _terminal,
       sshFolderPath: widget.sshFolderPath,
+      onPassphraseRequest: _showPassphraseDialog,
       onStateChange: (state) {
         if (mounted) {
           setState(() => _sessionState = state);
@@ -251,6 +252,51 @@ class _MoshTerminalViewState extends State<MoshTerminalView> {
       case MoshSessionState.disconnected:
         return Colors.grey;
     }
+  }
+
+  Future<String?> _showPassphraseDialog(String keyName) async {
+    final controller = TextEditingController();
+
+    return showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        return AlertDialog(
+          title: const Text('SSH Key Passphrase'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Key "$keyName" is encrypted.',
+                style: const TextStyle(fontSize: 14),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: controller,
+                obscureText: true,
+                autofocus: true,
+                decoration: const InputDecoration(
+                  labelText: 'Passphrase',
+                  border: OutlineInputBorder(),
+                ),
+                onSubmitted: (value) => Navigator.of(ctx).pop(value),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(null),
+              child: const Text('Skip'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(ctx).pop(controller.text),
+              child: const Text('Unlock'),
+            ),
+          ],
+        );
+      },
+    );
   }
 }
 
