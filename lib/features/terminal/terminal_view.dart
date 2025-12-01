@@ -81,13 +81,15 @@ class _SshTerminalViewState extends State<SshTerminalView>
       onPassphraseRequest: _showPassphraseDialog,
     );
 
-    // Connect on init
-    _session.connect();
-
     // Handle terminal input
     _terminal.onOutput = (data) {
       _session.write(data);
     };
+
+    // Connect after first frame when context is ready for dialogs
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _session.connect();
+    });
   }
 
   @override

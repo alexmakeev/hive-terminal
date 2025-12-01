@@ -68,8 +68,10 @@ class _MoshTerminalViewState extends State<MoshTerminalView> {
       },
     );
 
-    // Connect on init
-    _session.connect();
+    // Connect after first frame when context is ready for dialogs
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _session.connect();
+    });
   }
 
   @override
