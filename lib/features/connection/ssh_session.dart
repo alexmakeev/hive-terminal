@@ -219,62 +219,43 @@ class SshSession {
       // Common key file names
       final keyNames = ['id_ed25519', 'id_rsa', 'id_ecdsa'];
 
-      // Ask for passphrase once (if needed and not already saved)
-      String? passphraseForKeys = config.passphrase;
-      bool passphraseAsked = false;
-
       for (final name in keyNames) {
         final keyFile = File('${sshDir.path}/$name');
         if (await keyFile.exists()) {
           try {
             final keyContent = await keyFile.readAsString();
-            // First try without passphrase
-            try {
-              final keyPairs = SSHKeyPair.fromPem(keyContent);
-              keys.addAll(keyPairs);
-              terminal.write('Loaded key: $name\r\n');
-              continue;
-            } catch (_) {
-              // Key might be encrypted, try with passphrase
-            }
+            // Try with config passphrase first (or no passphrase if null)
+            final keyPairs = SSHKeyPair.fromPem(keyContent, config.passphrase);
+            keys.addAll(keyPairs);
+            terminal.write('Loaded key: $name\r\n');
+          } catch (e) {
+            final errorMsg = e.toString();
+            final needsPassphrase = errorMsg.contains('passphrase') ||
+                                    errorMsg.contains('decrypt') ||
+                                    errorMsg.contains('encrypted');
 
-            // Try with saved/cached passphrase
-            if (passphraseForKeys != null && passphraseForKeys.isNotEmpty) {
-              try {
-                final keyPairs = SSHKeyPair.fromPem(keyContent, passphraseForKeys);
-                keys.addAll(keyPairs);
-                terminal.write('Loaded key: $name\r\n');
-                continue;
-              } catch (_) {
-                // Passphrase didn't work for this key
-              }
-            }
-
-            // Ask for passphrase only ONCE if not already asked and no saved passphrase
-            if (!passphraseAsked && onPassphraseRequest != null &&
-                (passphraseForKeys == null || passphraseForKeys.isEmpty)) {
+            if (needsPassphrase && onPassphraseRequest != null) {
+              // Ask user for passphrase for this specific key
               terminal.write('\x1B[33mKey $name requires passphrase...\x1B[0m\r\n');
-              final userPassphrase = await onPassphraseRequest!(name);
-              passphraseAsked = true;
+              final passphrase = await onPassphraseRequest!(name);
 
-              if (userPassphrase != null && userPassphrase.isNotEmpty) {
-                passphraseForKeys = userPassphrase;
+              if (passphrase != null && passphrase.isNotEmpty) {
                 try {
-                  final keyPairs = SSHKeyPair.fromPem(keyContent, passphraseForKeys);
+                  final keyContent = await keyFile.readAsString();
+                  final keyPairs = SSHKeyPair.fromPem(keyContent, passphrase);
                   keys.addAll(keyPairs);
                   terminal.write('Loaded key: $name (with passphrase)\r\n');
-                  continue;
-                } catch (_) {
+                } catch (e2) {
                   errors.add('$name: invalid passphrase');
                 }
               } else {
                 errors.add('$name: passphrase not provided');
               }
-            } else {
+            } else if (needsPassphrase) {
               errors.add('$name: needs passphrase');
+            } else {
+              errors.add('$name: $errorMsg');
             }
-          } catch (e) {
-            errors.add('$name: ${e.toString()}');
           }
         }
       }
