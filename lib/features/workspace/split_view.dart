@@ -396,6 +396,7 @@ class _SplitContainer extends StatefulWidget {
 class _SplitContainerState extends State<_SplitContainer> {
   late List<double> _ratios;
   int _focusedIndex = -1;
+  bool _mouseInZoomedOverlay = false;
 
   @override
   void initState() {
@@ -409,13 +410,29 @@ class _SplitContainerState extends State<_SplitContainer> {
     if (widget.ratios.length != _ratios.length) {
       _ratios = List.from(widget.ratios);
       _focusedIndex = -1;
+      _mouseInZoomedOverlay = false;
     }
   }
 
   void _onFocus(int index) {
+    // Don't unfocus if mouse is still in zoomed overlay
+    if (index == -1 && _mouseInZoomedOverlay) return;
     if (_focusedIndex == index) return;
     setState(() {
       _focusedIndex = index;
+      if (index == -1) _mouseInZoomedOverlay = false;
+    });
+  }
+
+  void _onZoomedOverlayEnter() {
+    _mouseInZoomedOverlay = true;
+  }
+
+  void _onZoomedOverlayExit() {
+    _mouseInZoomedOverlay = false;
+    // Unfocus when leaving zoomed overlay
+    setState(() {
+      _focusedIndex = -1;
     });
   }
 
@@ -426,6 +443,40 @@ class _SplitContainerState extends State<_SplitContainer> {
     // Only zoom if nested (meaning not full width AND not full height)
     // A non-nested split means all children have full height (horizontal) or full width (vertical)
     return widget.isNested;
+  }
+
+  // Calculate alignment so zoom doesn't go beyond container bounds
+  Alignment _calculateZoomAlignment(double offset, double childSize, double totalSize) {
+    // How much the zoom will expand beyond original bounds
+    final zoomExpand = childSize * (widget.focusZoom - 1) / 2;
+
+    // Calculate alignment on main axis (horizontal for horizontal split)
+    double mainAlign = 0.0;
+
+    // Check if zoom would go beyond left/top edge
+    if (offset - zoomExpand < 0) {
+      // Align to left/top (expand only to right/bottom)
+      mainAlign = -1.0;
+    }
+    // Check if zoom would go beyond right/bottom edge
+    else if (offset + childSize + zoomExpand > totalSize) {
+      // Align to right/bottom (expand only to left/top)
+      mainAlign = 1.0;
+    }
+    // Otherwise center is fine
+    else {
+      mainAlign = 0.0;
+    }
+
+    // For cross axis, always align to top to avoid covering header
+    // (cross axis is vertical for horizontal split, horizontal for vertical split)
+    double crossAlign = -1.0; // Top/Left alignment to avoid header
+
+    if (widget.isHorizontal) {
+      return Alignment(mainAlign, crossAlign);
+    } else {
+      return Alignment(crossAlign, mainAlign);
+    }
   }
 
   @override
@@ -446,6 +497,17 @@ class _SplitContainerState extends State<_SplitContainer> {
         final baseChildren = <Widget>[];
         Widget? zoomedChild;
         int? zoomedIndex;
+        double? zoomedOffset;
+        double? zoomedSize;
+        Alignment? zoomAlignment;
+
+        // Calculate offsets first
+        final offsets = <double>[];
+        double currentOffset = 0;
+        for (var i = 0; i < childWidgets.length; i++) {
+          offsets.add(currentOffset);
+          currentOffset += availableSize * _ratios[i] + (i < childWidgets.length - 1 ? dividerThickness : 0);
+        }
 
         for (var i = 0; i < childWidgets.length; i++) {
           final size = availableSize * _ratios[i];
@@ -456,8 +518,14 @@ class _SplitContainerState extends State<_SplitContainer> {
           if (shouldZoom) {
             // Store zoomed child for overlay rendering (z-index on top)
             zoomedIndex = i;
+            zoomedOffset = offsets[i];
+            zoomedSize = size;
+            zoomAlignment = _calculateZoomAlignment(offsets[i], size, availableSize + dividerTotal);
             zoomedChild = _AnimatedZoomWrapper(
               scale: widget.focusZoom,
+              alignment: zoomAlignment,
+              onMouseEnter: _onZoomedOverlayEnter,
+              onMouseExit: _onZoomedOverlayExit,
               child: child,
             );
             // Add placeholder for layout
@@ -503,24 +571,17 @@ class _SplitContainerState extends State<_SplitContainer> {
             : Column(children: baseChildren);
 
         // If there's a zoomed child, render it on top using Stack
-        if (zoomedChild != null && zoomedIndex != null) {
-          // Calculate position for zoomed overlay
-          double offset = 0;
-          for (var i = 0; i < zoomedIndex; i++) {
-            offset += availableSize * _ratios[i] + dividerThickness;
-          }
-          final childSize = availableSize * _ratios[zoomedIndex];
-
+        if (zoomedChild != null && zoomedIndex != null && zoomedOffset != null && zoomedSize != null) {
           return Stack(
-            clipBehavior: Clip.none,
+            clipBehavior: Clip.hardEdge, // Clip zoomed content to container bounds
             children: [
               baseLayout,
               // Zoomed overlay on top
               Positioned(
-                left: widget.isHorizontal ? offset : 0,
-                top: widget.isHorizontal ? 0 : offset,
-                width: widget.isHorizontal ? childSize : null,
-                height: widget.isHorizontal ? null : childSize,
+                left: widget.isHorizontal ? zoomedOffset : 0,
+                top: widget.isHorizontal ? 0 : zoomedOffset,
+                width: widget.isHorizontal ? zoomedSize : null,
+                height: widget.isHorizontal ? null : zoomedSize,
                 right: widget.isHorizontal ? null : 0,
                 bottom: widget.isHorizontal ? 0 : null,
                 child: zoomedChild,
@@ -556,14 +617,20 @@ class _SplitContainerState extends State<_SplitContainer> {
   }
 }
 
-/// Animated zoom wrapper with ease-out animation
+/// Animated zoom wrapper with ease-out animation and smart alignment
 class _AnimatedZoomWrapper extends StatefulWidget {
   final double scale;
   final Widget child;
+  final Alignment alignment;
+  final VoidCallback? onMouseEnter;
+  final VoidCallback? onMouseExit;
 
   const _AnimatedZoomWrapper({
     required this.scale,
     required this.child,
+    this.alignment = Alignment.center,
+    this.onMouseEnter,
+    this.onMouseExit,
   });
 
   @override
@@ -596,32 +663,37 @@ class _AnimatedZoomWrapperState extends State<_AnimatedZoomWrapper>
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _scaleAnimation,
-      builder: (context, child) {
-        return Transform.scale(
-          scale: _scaleAnimation.value,
-          child: Container(
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(4),
-              border: Border.all(
-                color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.5),
-                width: 1,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.3),
-                  blurRadius: 12,
-                  spreadRadius: 2,
+    return MouseRegion(
+      onEnter: widget.onMouseEnter != null ? (_) => widget.onMouseEnter!() : null,
+      onExit: widget.onMouseExit != null ? (_) => widget.onMouseExit!() : null,
+      child: AnimatedBuilder(
+        animation: _scaleAnimation,
+        builder: (context, child) {
+          return Transform.scale(
+            scale: _scaleAnimation.value,
+            alignment: widget.alignment,
+            child: Container(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(
+                  color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.5),
+                  width: 1,
                 ),
-              ],
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.3),
+                    blurRadius: 12,
+                    spreadRadius: 2,
+                  ),
+                ],
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: child,
             ),
-            clipBehavior: Clip.antiAlias,
-            child: child,
-          ),
-        );
-      },
-      child: widget.child,
+          );
+        },
+        child: widget.child,
+      ),
     );
   }
 }

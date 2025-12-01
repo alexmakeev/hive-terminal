@@ -329,7 +329,13 @@ class _WorkspacePageState extends State<WorkspacePage> {
           if (hasSavedConnections) ...[
             const SizedBox(height: 24),
             OutlinedButton.icon(
-              onPressed: _openSavedConnections,
+              onPressed: () async {
+                // Show bottom sheet same as split workflow
+                final config = await _showConnectionChooser();
+                if (config != null) {
+                  _manager.addTerminal(config);
+                }
+              },
               icon: const Icon(Icons.bookmark),
               label: Text(
                 '${_connectionRepository.connections.length} saved connection(s)',
@@ -444,7 +450,8 @@ class _ConnectionChooserSheet extends StatelessWidget {
           if (savedConnections.isNotEmpty) ...[
             const Divider(height: 1),
             ConstrainedBox(
-              constraints: const BoxConstraints(maxHeight: 200),
+              // Show ~4.5 items (each ~68px) to hint that scrolling is available
+              constraints: const BoxConstraints(maxHeight: 310),
               child: ListView.builder(
                 shrinkWrap: true,
                 itemCount: savedConnections.length,
