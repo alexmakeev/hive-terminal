@@ -85,51 +85,6 @@ class _SettingsPageState extends State<SettingsPage> {
             const SizedBox(height: 24),
           ],
 
-          // Terminal Section
-          _buildSectionHeader(context, 'Terminal'),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text('Focus Zoom'),
-                      Text(
-                        '${(widget.settings.focusZoom * 100).round()}%',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: theme.colorScheme.primary,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Slider(
-                    value: widget.settings.focusZoom,
-                    min: 1.0,
-                    max: 1.5,
-                    divisions: 10,
-                    label: '${(widget.settings.focusZoom * 100).round()}%',
-                    onChanged: (value) {
-                      widget.settings.setFocusZoom(value);
-                    },
-                  ),
-                  Text(
-                    'Terminal expansion when focused (100% = no change)',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 24),
-
           // About Section
           _buildSectionHeader(context, 'About'),
           Card(

@@ -267,7 +267,6 @@ class _WorkspacePageState extends State<WorkspacePage> {
       child: SplitView(
         node: workspace.root!,
         sshFolderPath: _settings.sshFolderPath,
-        focusZoom: _settings.focusZoom,
         onClose: (nodeId) => _manager.closeTerminal(nodeId),
         onSplit: (nodeId, horizontal) async {
           final result = await _showConnectionChooser();

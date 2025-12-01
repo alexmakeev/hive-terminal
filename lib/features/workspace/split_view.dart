@@ -19,7 +19,6 @@ class SplitView extends StatefulWidget {
   final void Function(String nodeId, bool horizontal) onSplit;
   final void Function(String sourceId, String targetId, DropPosition position)? onMove;
   final String? sshFolderPath;
-  final double focusZoom;
 
   const SplitView({
     super.key,
@@ -28,7 +27,6 @@ class SplitView extends StatefulWidget {
     required this.onSplit,
     this.onMove,
     this.sshFolderPath,
-    this.focusZoom = 1.0,
   });
 
   @override
@@ -55,7 +53,7 @@ class _SplitViewState extends State<SplitView> {
       );
     }
 
-    return _buildNode(filteredRoot, isNested: false);
+    return _buildNode(filteredRoot);
   }
 
   /// Filter out dragged node from tree, collapsing containers as needed
@@ -93,7 +91,7 @@ class _SplitViewState extends State<SplitView> {
     return node;
   }
 
-  Widget _buildNode(SplitNode node, {bool isNested = false}) {
+  Widget _buildNode(SplitNode node) {
     if (node is TerminalNode) {
       return _DraggableTerminal(
         nodeId: node.id,
@@ -131,12 +129,7 @@ class _SplitViewState extends State<SplitView> {
       return _SplitContainer(
         isHorizontal: node.isHorizontal,
         ratios: node.ratios,
-        focusZoom: widget.focusZoom,
-        isNested: isNested,
-        children: node.children.map((child) {
-          // Children of a container are nested (not full width AND not full height)
-          return _buildNode(child, isNested: true);
-        }).toList(),
+        children: node.children.map((child) => _buildNode(child)).toList(),
       );
     }
 
@@ -325,20 +318,16 @@ class _DropZoneIndicator extends StatelessWidget {
   }
 }
 
-/// Resizable split container with focus zoom
+/// Simple resizable split container using Row/Column
 class _SplitContainer extends StatefulWidget {
   final bool isHorizontal;
   final List<double> ratios;
-  final double focusZoom;
-  final bool isNested;
   final List<Widget> children;
 
   const _SplitContainer({
     required this.isHorizontal,
     required this.ratios,
     required this.children,
-    this.focusZoom = 1.0,
-    this.isNested = false,
   });
 
   @override
@@ -347,7 +336,6 @@ class _SplitContainer extends StatefulWidget {
 
 class _SplitContainerState extends State<_SplitContainer> {
   late List<double> _ratios;
-  int _focusedIndex = -1;
 
   @override
   void initState() {
@@ -360,21 +348,12 @@ class _SplitContainerState extends State<_SplitContainer> {
     super.didUpdateWidget(oldWidget);
     if (widget.ratios.length != _ratios.length) {
       _ratios = List.from(widget.ratios);
-      _focusedIndex = -1;
     }
-  }
-
-  void _onChildHover(int index, bool entering) {
-    if (!widget.isNested || widget.focusZoom <= 1.0) return;
-
-    setState(() {
-      _focusedIndex = entering ? index : -1;
-    });
   }
 
   @override
   Widget build(BuildContext context) {
-    const dividerThickness = 2.0;
+    const dividerThickness = 4.0;
     final dividerColor =
         Theme.of(context).colorScheme.outline.withValues(alpha: 0.3);
 
@@ -385,82 +364,41 @@ class _SplitContainerState extends State<_SplitContainer> {
         final dividerTotal = dividerThickness * (_ratios.length - 1);
         final availableSize = totalSize - dividerTotal;
 
-        // Calculate positions for Stack-based layout
-        final positions = <Rect>[];
-        double currentOffset = 0;
+        final children = <Widget>[];
+
         for (var i = 0; i < widget.children.length; i++) {
           final size = availableSize * _ratios[i];
-          positions.add(
-            widget.isHorizontal
-                ? Rect.fromLTWH(currentOffset, 0, size, constraints.maxHeight)
-                : Rect.fromLTWH(0, currentOffset, constraints.maxWidth, size),
-          );
-          currentOffset += size + dividerThickness;
-        }
 
-        // Build all children - terminal stays in ONE place, only Transform.scale changes
-        final stackChildren = <Widget>[];
-        int? zoomedIndex;
-
-        for (var i = 0; i < widget.children.length; i++) {
-          final rect = positions[i];
-          final isZoomed = _focusedIndex == i && widget.isNested && widget.focusZoom > 1.0;
-
-          if (isZoomed) {
-            zoomedIndex = i;
-          }
-
-          // Terminal wrapped in _InlineZoomWrapper - structure never changes!
-          // Only the targetScale property changes, triggering animation
-          final child = _InlineZoomWrapper(
-            key: ValueKey('child_$i'),
-            targetScale: isZoomed ? widget.focusZoom : 1.0,
-            onHoverChange: (hovering) => _onChildHover(i, hovering),
-            child: widget.children[i],
-          );
-
-          stackChildren.add(
-            Positioned.fromRect(
-              rect: rect,
-              child: child,
+          children.add(
+            SizedBox(
+              width: widget.isHorizontal ? size : null,
+              height: widget.isHorizontal ? null : size,
+              child: widget.children[i],
             ),
           );
-        }
 
-        // Add dividers
-        currentOffset = 0;
-        for (var i = 0; i < widget.children.length - 1; i++) {
-          currentOffset += availableSize * _ratios[i];
-          stackChildren.add(
-            Positioned(
-              left: widget.isHorizontal ? currentOffset : 0,
-              top: widget.isHorizontal ? 0 : currentOffset,
-              width: widget.isHorizontal ? dividerThickness : constraints.maxWidth,
-              height: widget.isHorizontal ? constraints.maxHeight : dividerThickness,
-              child: GestureDetector(
+          if (i < widget.children.length - 1) {
+            children.add(
+              GestureDetector(
                 onPanUpdate: (details) => _onDrag(i, details, availableSize),
                 child: MouseRegion(
                   cursor: widget.isHorizontal
                       ? SystemMouseCursors.resizeColumn
                       : SystemMouseCursors.resizeRow,
-                  child: Container(color: dividerColor),
+                  child: Container(
+                    width: widget.isHorizontal ? dividerThickness : null,
+                    height: widget.isHorizontal ? null : dividerThickness,
+                    color: dividerColor,
+                  ),
                 ),
               ),
-            ),
-          );
-          currentOffset += dividerThickness;
+            );
+          }
         }
 
-        // Reorder: zoomed child should be last in list (renders on top)
-        if (zoomedIndex != null && zoomedIndex < stackChildren.length) {
-          final zoomed = stackChildren.removeAt(zoomedIndex);
-          stackChildren.add(zoomed);
-        }
-
-        return Stack(
-          clipBehavior: Clip.none,
-          children: stackChildren,
-        );
+        return widget.isHorizontal
+            ? Row(children: children)
+            : Column(children: children);
       },
     );
   }
@@ -484,169 +422,5 @@ class _SplitContainerState extends State<_SplitContainer> {
         _ratios[dividerIndex + 1] = minRatio;
       }
     });
-  }
-}
-
-/// Inline zoom wrapper - structure never changes, only scale animates
-/// This prevents terminal widget rebuild which would cause SSH reconnection
-class _InlineZoomWrapper extends StatefulWidget {
-  final double targetScale;
-  final void Function(bool hovering) onHoverChange;
-  final Widget child;
-
-  const _InlineZoomWrapper({
-    super.key,
-    required this.targetScale,
-    required this.onHoverChange,
-    required this.child,
-  });
-
-  @override
-  State<_InlineZoomWrapper> createState() => _InlineZoomWrapperState();
-}
-
-class _InlineZoomWrapperState extends State<_InlineZoomWrapper>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-  late Animation<double> _scaleAnimation;
-  final GlobalKey _key = GlobalKey();
-  Alignment _alignment = Alignment.center;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      duration: const Duration(milliseconds: 200),
-      vsync: this,
-    );
-
-    _scaleAnimation = Tween<double>(begin: 1.0, end: widget.targetScale).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeOut),
-    );
-
-    if (widget.targetScale > 1.0) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _calculateAlignment();
-        _controller.forward();
-      });
-    }
-  }
-
-  @override
-  void didUpdateWidget(covariant _InlineZoomWrapper oldWidget) {
-    super.didUpdateWidget(oldWidget);
-
-    if (oldWidget.targetScale != widget.targetScale) {
-      // Animate from current scale to new target
-      final currentValue = _scaleAnimation.value;
-      _scaleAnimation = Tween<double>(
-        begin: currentValue,
-        end: widget.targetScale,
-      ).animate(
-        CurvedAnimation(
-          parent: _controller,
-          curve: widget.targetScale > 1.0 ? Curves.easeOut : Curves.easeIn,
-        ),
-      );
-
-      _controller.reset();
-
-      if (widget.targetScale > 1.0) {
-        _calculateAlignment();
-      }
-
-      _controller.forward();
-    }
-  }
-
-  void _calculateAlignment() {
-    final box = _key.currentContext?.findRenderObject() as RenderBox?;
-    if (box == null || !box.hasSize) return;
-
-    final globalPos = box.localToGlobal(Offset.zero);
-    final size = box.size;
-    final viewport = MediaQuery.of(context).size;
-
-    // Determine alignment based on which edges touch viewport boundaries
-    // Edge at boundary should stay fixed (alignment towards that edge)
-
-    const edgeThreshold = 50.0; // pixels from edge to consider "at boundary"
-
-    double alignX = 0.0;
-    double alignY = 0.0;
-
-    // Check left edge
-    if (globalPos.dx < edgeThreshold) {
-      alignX = -1.0; // Pin left edge
-    }
-    // Check right edge
-    else if (globalPos.dx + size.width > viewport.width - edgeThreshold) {
-      alignX = 1.0; // Pin right edge
-    }
-
-    // Check top edge
-    if (globalPos.dy < edgeThreshold) {
-      alignY = -1.0; // Pin top edge
-    }
-    // Check bottom edge
-    else if (globalPos.dy + size.height > viewport.height - edgeThreshold) {
-      alignY = 1.0; // Pin bottom edge
-    }
-
-    if (mounted) {
-      setState(() {
-        _alignment = Alignment(alignX, alignY);
-      });
-    }
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return MouseRegion(
-      key: _key,
-      onEnter: (_) => widget.onHoverChange(true),
-      onExit: (_) => widget.onHoverChange(false),
-      child: AnimatedBuilder(
-        animation: _scaleAnimation,
-        builder: (context, child) {
-          final scale = _scaleAnimation.value;
-          final isZoomed = scale > 1.01;
-
-          // Scale the child
-          Widget scaled = Transform.scale(
-            scale: scale,
-            alignment: _alignment,
-            child: child,
-          );
-
-          // Add shadow decoration only when zoomed (wrap the scaled content)
-          if (isZoomed) {
-            // Shadow intensity based on zoom level
-            final shadowIntensity = (scale - 1.0).clamp(0.0, 1.0);
-            scaled = DecoratedBox(
-              decoration: BoxDecoration(
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.4 * shadowIntensity),
-                    blurRadius: 16 * shadowIntensity,
-                    spreadRadius: 4 * shadowIntensity,
-                  ),
-                ],
-              ),
-              child: scaled,
-            );
-          }
-
-          return scaled;
-        },
-        child: widget.child,
-      ),
-    );
   }
 }
