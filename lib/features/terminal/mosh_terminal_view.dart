@@ -101,11 +101,61 @@ class _MoshTerminalViewState extends State<MoshTerminalView> {
           Expanded(
             child: GestureDetector(
               onTap: () => setState(() => _showToolbar = !_showToolbar),
-              child: xterm.TerminalView(
-                _terminal,
-                controller: _terminalController,
-                autofocus: true,
-                backgroundOpacity: 1.0,
+              child: Stack(
+                children: [
+                  xterm.TerminalView(
+                    _terminal,
+                    controller: _terminalController,
+                    autofocus: true,
+                    backgroundOpacity: 1.0,
+                  ),
+                  // Large centered reconnect button when disconnected
+                  if (_sessionState == MoshSessionState.error ||
+                      _sessionState == MoshSessionState.disconnected)
+                    Positioned.fill(
+                      child: Container(
+                        color: Colors.black.withValues(alpha: 0.6),
+                        child: Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                _sessionState == MoshSessionState.error
+                                    ? Icons.error_outline
+                                    : Icons.wifi_off,
+                                size: 48,
+                                color: _sessionState == MoshSessionState.error
+                                    ? Colors.red
+                                    : Colors.grey,
+                              ),
+                              const SizedBox(height: 16),
+                              Text(
+                                _sessionState == MoshSessionState.error
+                                    ? 'Connection Error'
+                                    : 'Disconnected',
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  color: Colors.white70,
+                                ),
+                              ),
+                              const SizedBox(height: 24),
+                              FilledButton.icon(
+                                onPressed: () => _session.connect(),
+                                icon: const Icon(Icons.refresh),
+                                label: const Text('Reconnect'),
+                                style: FilledButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 32,
+                                    vertical: 16,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
               ),
             ),
           ),

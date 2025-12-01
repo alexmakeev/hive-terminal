@@ -55,7 +55,7 @@ class _SplitViewState extends State<SplitView> {
       );
     }
 
-    return _buildNode(filteredRoot, null, null);
+    return _buildNode(filteredRoot, isNested: false);
   }
 
   /// Filter out dragged node from tree, collapsing containers as needed
@@ -93,7 +93,7 @@ class _SplitViewState extends State<SplitView> {
     return node;
   }
 
-  Widget _buildNode(SplitNode node, void Function(int)? onFocus, int? index, {bool isNested = false}) {
+  Widget _buildNode(SplitNode node, {bool isNested = false}) {
     if (node is TerminalNode) {
       return _DraggableTerminal(
         nodeId: node.id,
@@ -101,8 +101,6 @@ class _SplitViewState extends State<SplitView> {
         onDrop: widget.onMove != null
             ? (sourceId, position) => widget.onMove!(sourceId, node.id, position)
             : null,
-        onFocusEnter: onFocus != null && index != null ? () => onFocus(index) : null,
-        onFocusExit: onFocus != null ? () => onFocus(-1) : null,
         child: node.pane.config.protocol == ConnectionProtocol.mosh
             ? MoshTerminalView(
                 key: node.pane.key,
@@ -135,12 +133,10 @@ class _SplitViewState extends State<SplitView> {
         ratios: node.ratios,
         focusZoom: widget.focusZoom,
         isNested: isNested,
-        childBuilder: (onChildFocus) {
-          return node.children.asMap().entries.map((entry) {
-            // Children of a container are nested (not full width AND not full height)
-            return _buildNode(entry.value, onChildFocus, entry.key, isNested: true);
-          }).toList();
-        },
+        children: node.children.map((child) {
+          // Children of a container are nested (not full width AND not full height)
+          return _buildNode(child, isNested: true);
+        }).toList(),
       );
     }
 
@@ -193,16 +189,12 @@ class _DraggableTerminal extends StatefulWidget {
   final String nodeId;
   final bool isDragging;
   final void Function(String sourceId, DropPosition position)? onDrop;
-  final VoidCallback? onFocusEnter;
-  final VoidCallback? onFocusExit;
   final Widget child;
 
   const _DraggableTerminal({
     required this.nodeId,
     required this.isDragging,
     this.onDrop,
-    this.onFocusEnter,
-    this.onFocusExit,
     required this.child,
   });
 
@@ -214,10 +206,6 @@ class _DraggableTerminalState extends State<_DraggableTerminal> {
   DropPosition? _hoverPosition;
   Offset? _lastPointerPosition;
   final GlobalKey _key = GlobalKey();
-  bool _isInCenterZone = false;
-
-  // Edge margin where zoom won't activate (for resize handles)
-  static const double _edgeMargin = 40.0;
 
   void _updateDropPosition() {
     if (_lastPointerPosition == null) return;
@@ -247,46 +235,10 @@ class _DraggableTerminalState extends State<_DraggableTerminal> {
     }
   }
 
-  void _updateCenterZone(PointerEvent event) {
-    final box = _key.currentContext?.findRenderObject() as RenderBox?;
-    if (box == null) return;
-
-    final local = box.globalToLocal(event.position);
-    final size = box.size;
-
-    // Check if cursor is in center zone (not near edges)
-    final inCenter = local.dx > _edgeMargin &&
-        local.dx < size.width - _edgeMargin &&
-        local.dy > _edgeMargin &&
-        local.dy < size.height - _edgeMargin;
-
-    if (inCenter != _isInCenterZone) {
-      _isInCenterZone = inCenter;
-      if (inCenter) {
-        widget.onFocusEnter?.call();
-      } else {
-        widget.onFocusExit?.call();
-      }
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return MouseRegion(
       key: _key,
-      onEnter: (_) {
-        // Don't trigger focus on enter - wait for center zone check
-      },
-      onExit: (_) {
-        if (_isInCenterZone) {
-          _isInCenterZone = false;
-          widget.onFocusExit?.call();
-        }
-      },
-      onHover: (event) {
-        _lastPointerPosition = event.position;
-        _updateCenterZone(event);
-      },
       child: DragTarget<TerminalDragData>(
         onWillAcceptWithDetails: (details) {
           return details.data.terminalId != widget.nodeId;
@@ -305,7 +257,7 @@ class _DraggableTerminalState extends State<_DraggableTerminal> {
           _lastPointerPosition = null;
         }),
         onMove: (details) {
-          // Use last pointer position from MouseRegion for accurate calculation
+          _lastPointerPosition = details.offset;
           _updateDropPosition();
         },
         builder: (context, candidateData, rejectedData) {
@@ -378,13 +330,13 @@ class _SplitContainer extends StatefulWidget {
   final bool isHorizontal;
   final List<double> ratios;
   final double focusZoom;
-  final bool isNested; // true if this container is inside another split
-  final List<Widget> Function(void Function(int) onFocus) childBuilder;
+  final bool isNested;
+  final List<Widget> children;
 
   const _SplitContainer({
     required this.isHorizontal,
     required this.ratios,
-    required this.childBuilder,
+    required this.children,
     this.focusZoom = 1.0,
     this.isNested = false,
   });
@@ -396,7 +348,7 @@ class _SplitContainer extends StatefulWidget {
 class _SplitContainerState extends State<_SplitContainer> {
   late List<double> _ratios;
   int _focusedIndex = -1;
-  bool _mouseInZoomedOverlay = false;
+  bool _mouseInZoomedArea = false;
 
   @override
   void initState() {
@@ -410,73 +362,48 @@ class _SplitContainerState extends State<_SplitContainer> {
     if (widget.ratios.length != _ratios.length) {
       _ratios = List.from(widget.ratios);
       _focusedIndex = -1;
-      _mouseInZoomedOverlay = false;
+      _mouseInZoomedArea = false;
     }
   }
 
-  void _onFocus(int index) {
-    // Don't unfocus if mouse is still in zoomed overlay
-    if (index == -1 && _mouseInZoomedOverlay) return;
-    if (_focusedIndex == index) return;
-    setState(() {
-      _focusedIndex = index;
-      if (index == -1) _mouseInZoomedOverlay = false;
-    });
+  // Track previous focused index for exit animation
+  int _previousFocusedIndex = -1;
+  bool _isAnimatingOut = false;
+
+  void _onChildHover(int index, bool entering) {
+    if (!widget.isNested || widget.focusZoom <= 1.0) return;
+
+    if (entering) {
+      // Cancel any pending animation out
+      _isAnimatingOut = false;
+      setState(() => _focusedIndex = index);
+    } else if (!_mouseInZoomedArea) {
+      _startExitAnimation();
+    }
   }
 
-  void _onZoomedOverlayEnter() {
-    _mouseInZoomedOverlay = true;
+  void _onZoomedAreaEnter() {
+    _mouseInZoomedArea = true;
+    _isAnimatingOut = false;
   }
 
-  void _onZoomedOverlayExit() {
-    _mouseInZoomedOverlay = false;
-    // Unfocus when leaving zoomed overlay
-    setState(() {
-      _focusedIndex = -1;
-    });
+  void _onZoomedAreaExit() {
+    _mouseInZoomedArea = false;
+    _startExitAnimation();
   }
 
-  // Check if zoom should be applied to this child
-  bool _shouldZoom(int index) {
-    if (widget.focusZoom <= 1.0) return false;
-    if (_focusedIndex != index) return false;
-    // Only zoom if nested (meaning not full width AND not full height)
-    // A non-nested split means all children have full height (horizontal) or full width (vertical)
-    return widget.isNested;
+  void _startExitAnimation() {
+    if (_focusedIndex == -1) return;
+
+    _previousFocusedIndex = _focusedIndex;
+    _isAnimatingOut = true;
+    setState(() => _focusedIndex = -1);
   }
 
-  // Calculate alignment so zoom doesn't go beyond container bounds
-  Alignment _calculateZoomAlignment(double offset, double childSize, double totalSize) {
-    // How much the zoom will expand beyond original bounds
-    final zoomExpand = childSize * (widget.focusZoom - 1) / 2;
-
-    // Calculate alignment on main axis (horizontal for horizontal split)
-    double mainAlign = 0.0;
-
-    // Check if zoom would go beyond left/top edge
-    if (offset - zoomExpand < 0) {
-      // Align to left/top (expand only to right/bottom)
-      mainAlign = -1.0;
-    }
-    // Check if zoom would go beyond right/bottom edge
-    else if (offset + childSize + zoomExpand > totalSize) {
-      // Align to right/bottom (expand only to left/top)
-      mainAlign = 1.0;
-    }
-    // Otherwise center is fine
-    else {
-      mainAlign = 0.0;
-    }
-
-    // For cross axis, always align to top to avoid covering header
-    // (cross axis is vertical for horizontal split, horizontal for vertical split)
-    double crossAlign = -1.0; // Top/Left alignment to avoid header
-
-    if (widget.isHorizontal) {
-      return Alignment(mainAlign, crossAlign);
-    } else {
-      return Alignment(crossAlign, mainAlign);
-    }
+  void _onExitAnimationComplete() {
+    _isAnimatingOut = false;
+    _previousFocusedIndex = -1;
+    if (mounted) setState(() {});
   }
 
   @override
@@ -484,7 +411,6 @@ class _SplitContainerState extends State<_SplitContainer> {
     const dividerThickness = 2.0;
     final dividerColor =
         Theme.of(context).colorScheme.outline.withValues(alpha: 0.3);
-    final childWidgets = widget.childBuilder(_onFocus);
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -493,61 +419,62 @@ class _SplitContainerState extends State<_SplitContainer> {
         final dividerTotal = dividerThickness * (_ratios.length - 1);
         final availableSize = totalSize - dividerTotal;
 
-        // Build base children (non-zoomed)
-        final baseChildren = <Widget>[];
-        Widget? zoomedChild;
-        int? zoomedIndex;
+        final layoutChildren = <Widget>[];
+        Widget? zoomedWidget;
         double? zoomedOffset;
         double? zoomedSize;
-        Alignment? zoomAlignment;
 
-        // Calculate offsets first
+        // Determine which index needs zoom overlay (active or animating out)
+        final zoomTargetIndex = _focusedIndex != -1
+            ? _focusedIndex
+            : (_isAnimatingOut ? _previousFocusedIndex : -1);
+
+        // Calculate offsets for all children first
         final offsets = <double>[];
         double currentOffset = 0;
-        for (var i = 0; i < childWidgets.length; i++) {
+        for (var i = 0; i < widget.children.length; i++) {
           offsets.add(currentOffset);
-          currentOffset += availableSize * _ratios[i] + (i < childWidgets.length - 1 ? dividerThickness : 0);
+          currentOffset += availableSize * _ratios[i];
+          if (i < widget.children.length - 1) {
+            currentOffset += dividerThickness;
+          }
         }
 
-        for (var i = 0; i < childWidgets.length; i++) {
+        for (var i = 0; i < widget.children.length; i++) {
           final size = availableSize * _ratios[i];
-          final shouldZoom = _shouldZoom(i);
+          final isZoomTarget = zoomTargetIndex == i && widget.isNested && widget.focusZoom > 1.0;
 
-          Widget child = childWidgets[i];
+          Widget child = MouseRegion(
+            onEnter: (_) => _onChildHover(i, true),
+            onExit: (_) => _onChildHover(i, false),
+            child: widget.children[i],
+          );
 
-          if (shouldZoom) {
-            // Store zoomed child for overlay rendering (z-index on top)
-            zoomedIndex = i;
+          if (isZoomTarget) {
             zoomedOffset = offsets[i];
             zoomedSize = size;
-            zoomAlignment = _calculateZoomAlignment(offsets[i], size, availableSize + dividerTotal);
-            zoomedChild = _AnimatedZoomWrapper(
+            final isEntering = _focusedIndex == i;
+            zoomedWidget = _ZoomedChildWrapper(
+              key: ValueKey('zoom_$i'),
               scale: widget.focusZoom,
-              alignment: zoomAlignment,
-              onMouseEnter: _onZoomedOverlayEnter,
-              onMouseExit: _onZoomedOverlayExit,
-              child: child,
-            );
-            // Add placeholder for layout
-            baseChildren.add(
-              SizedBox(
-                width: widget.isHorizontal ? size : null,
-                height: widget.isHorizontal ? null : size,
-                child: child, // Original child stays for layout
-              ),
-            );
-          } else {
-            baseChildren.add(
-              SizedBox(
-                width: widget.isHorizontal ? size : null,
-                height: widget.isHorizontal ? null : size,
-                child: child,
-              ),
+              reverse: !isEntering, // Reverse animation if exiting
+              onEnter: _onZoomedAreaEnter,
+              onExit: _onZoomedAreaExit,
+              onAnimationComplete: !isEntering ? _onExitAnimationComplete : null,
+              child: widget.children[i],
             );
           }
 
-          if (i < childWidgets.length - 1) {
-            baseChildren.add(
+          layoutChildren.add(
+            SizedBox(
+              width: widget.isHorizontal ? size : null,
+              height: widget.isHorizontal ? null : size,
+              child: child,
+            ),
+          );
+
+          if (i < widget.children.length - 1) {
+            layoutChildren.add(
               GestureDetector(
                 onPanUpdate: (details) => _onDrag(i, details, availableSize),
                 child: MouseRegion(
@@ -565,18 +492,16 @@ class _SplitContainerState extends State<_SplitContainer> {
           }
         }
 
-        // Base layout
         Widget baseLayout = widget.isHorizontal
-            ? Row(children: baseChildren)
-            : Column(children: baseChildren);
+            ? Row(children: layoutChildren)
+            : Column(children: layoutChildren);
 
-        // If there's a zoomed child, render it on top using Stack
-        if (zoomedChild != null && zoomedIndex != null && zoomedOffset != null && zoomedSize != null) {
+        // If zoomed or animating out, overlay the zoomed widget on top
+        if (zoomedWidget != null && zoomedOffset != null && zoomedSize != null) {
           return Stack(
-            clipBehavior: Clip.hardEdge, // Clip zoomed content to container bounds
+            clipBehavior: Clip.none,
             children: [
               baseLayout,
-              // Zoomed overlay on top
               Positioned(
                 left: widget.isHorizontal ? zoomedOffset : 0,
                 top: widget.isHorizontal ? 0 : zoomedOffset,
@@ -584,7 +509,7 @@ class _SplitContainerState extends State<_SplitContainer> {
                 height: widget.isHorizontal ? null : zoomedSize,
                 right: widget.isHorizontal ? null : 0,
                 bottom: widget.isHorizontal ? 0 : null,
-                child: zoomedChild,
+                child: zoomedWidget,
               ),
             ],
           );
@@ -617,30 +542,35 @@ class _SplitContainerState extends State<_SplitContainer> {
   }
 }
 
-/// Animated zoom wrapper with ease-out animation and smart alignment
-class _AnimatedZoomWrapper extends StatefulWidget {
+/// Wrapper for zoomed child with animation and viewport-aware alignment
+class _ZoomedChildWrapper extends StatefulWidget {
   final double scale;
   final Widget child;
-  final Alignment alignment;
-  final VoidCallback? onMouseEnter;
-  final VoidCallback? onMouseExit;
+  final bool reverse; // true = animate from scaled to 1.0 (exit)
+  final VoidCallback? onEnter;
+  final VoidCallback? onExit;
+  final VoidCallback? onAnimationComplete;
 
-  const _AnimatedZoomWrapper({
+  const _ZoomedChildWrapper({
+    super.key,
     required this.scale,
     required this.child,
-    this.alignment = Alignment.center,
-    this.onMouseEnter,
-    this.onMouseExit,
+    this.reverse = false,
+    this.onEnter,
+    this.onExit,
+    this.onAnimationComplete,
   });
 
   @override
-  State<_AnimatedZoomWrapper> createState() => _AnimatedZoomWrapperState();
+  State<_ZoomedChildWrapper> createState() => _ZoomedChildWrapperState();
 }
 
-class _AnimatedZoomWrapperState extends State<_AnimatedZoomWrapper>
+class _ZoomedChildWrapperState extends State<_ZoomedChildWrapper>
     with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   late Animation<double> _scaleAnimation;
+  final GlobalKey _key = GlobalKey();
+  Alignment _alignment = Alignment.center;
 
   @override
   void initState() {
@@ -649,10 +579,52 @@ class _AnimatedZoomWrapperState extends State<_AnimatedZoomWrapper>
       duration: const Duration(milliseconds: 200),
       vsync: this,
     );
-    _scaleAnimation = Tween<double>(begin: 1.0, end: widget.scale).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeOut),
-    );
-    _controller.forward();
+
+    // For reverse animation, start from scaled and go to 1.0
+    if (widget.reverse) {
+      _scaleAnimation = Tween<double>(begin: widget.scale, end: 1.0).animate(
+        CurvedAnimation(parent: _controller, curve: Curves.easeIn),
+      );
+      _controller.addStatusListener((status) {
+        if (status == AnimationStatus.completed) {
+          widget.onAnimationComplete?.call();
+        }
+      });
+    } else {
+      _scaleAnimation = Tween<double>(begin: 1.0, end: widget.scale).animate(
+        CurvedAnimation(parent: _controller, curve: Curves.easeOut),
+      );
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _calculateAlignment();
+      _controller.forward();
+    });
+  }
+
+  void _calculateAlignment() {
+    final box = _key.currentContext?.findRenderObject() as RenderBox?;
+    if (box == null || !box.hasSize) return;
+
+    final globalPos = box.localToGlobal(Offset.zero);
+    final size = box.size;
+    final viewport = MediaQuery.of(context).size;
+
+    // Calculate center position relative to viewport
+    final centerX = globalPos.dx + size.width / 2;
+    final centerY = globalPos.dy + size.height / 2;
+
+    // Normalize to -1 to 1 (position in viewport)
+    // This determines which edge to pin for expansion
+    final normalizedX = (centerX / viewport.width) * 2 - 1;
+    final normalizedY = (centerY / viewport.height) * 2 - 1;
+
+    setState(() {
+      _alignment = Alignment(
+        normalizedX.clamp(-1.0, 1.0),
+        normalizedY.clamp(-1.0, 1.0),
+      );
+    });
   }
 
   @override
@@ -664,14 +636,15 @@ class _AnimatedZoomWrapperState extends State<_AnimatedZoomWrapper>
   @override
   Widget build(BuildContext context) {
     return MouseRegion(
-      onEnter: widget.onMouseEnter != null ? (_) => widget.onMouseEnter!() : null,
-      onExit: widget.onMouseExit != null ? (_) => widget.onMouseExit!() : null,
+      key: _key,
+      onEnter: widget.reverse ? null : (_) => widget.onEnter?.call(),
+      onExit: widget.reverse ? null : (_) => widget.onExit?.call(),
       child: AnimatedBuilder(
         animation: _scaleAnimation,
         builder: (context, child) {
           return Transform.scale(
             scale: _scaleAnimation.value,
-            alignment: widget.alignment,
+            alignment: _alignment,
             child: Container(
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(4),
@@ -697,4 +670,3 @@ class _AnimatedZoomWrapperState extends State<_AnimatedZoomWrapper>
     );
   }
 }
-

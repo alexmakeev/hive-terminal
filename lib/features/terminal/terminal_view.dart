@@ -174,6 +174,9 @@ class _SshTerminalViewState extends State<SshTerminalView>
       hardwareKeyboardOnly: !_isMobile,
     );
 
+    final isDisconnected = _sessionState == SessionState.error ||
+        _sessionState == SessionState.disconnected;
+
     return GestureDetector(
       onScaleStart: _onScaleStart,
       onScaleUpdate: _onScaleUpdate,
@@ -187,6 +190,51 @@ class _SshTerminalViewState extends State<SshTerminalView>
               child: terminalView,
             ),
           ),
+          // Large centered reconnect button when disconnected
+          if (isDisconnected)
+            Positioned.fill(
+              child: Container(
+                color: Colors.black.withValues(alpha: 0.6),
+                child: Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        _sessionState == SessionState.error
+                            ? Icons.error_outline
+                            : Icons.wifi_off,
+                        size: 48,
+                        color: _sessionState == SessionState.error
+                            ? Colors.red
+                            : Colors.grey,
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        _sessionState == SessionState.error
+                            ? 'Connection Error'
+                            : 'Disconnected',
+                        style: const TextStyle(
+                          fontSize: 16,
+                          color: Colors.white70,
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      FilledButton.icon(
+                        onPressed: () => _session.connect(),
+                        icon: const Icon(Icons.refresh),
+                        label: const Text('Reconnect'),
+                        style: FilledButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 32,
+                            vertical: 16,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
           // Zoom indicator (show only when zoomed)
           if (_zoom != 1.0)
             Positioned(
