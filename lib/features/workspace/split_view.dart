@@ -214,6 +214,10 @@ class _DraggableTerminalState extends State<_DraggableTerminal> {
   DropPosition? _hoverPosition;
   Offset? _lastPointerPosition;
   final GlobalKey _key = GlobalKey();
+  bool _isInCenterZone = false;
+
+  // Edge margin where zoom won't activate (for resize handles)
+  static const double _edgeMargin = 40.0;
 
   void _updateDropPosition() {
     if (_lastPointerPosition == null) return;
@@ -243,14 +247,45 @@ class _DraggableTerminalState extends State<_DraggableTerminal> {
     }
   }
 
+  void _updateCenterZone(PointerEvent event) {
+    final box = _key.currentContext?.findRenderObject() as RenderBox?;
+    if (box == null) return;
+
+    final local = box.globalToLocal(event.position);
+    final size = box.size;
+
+    // Check if cursor is in center zone (not near edges)
+    final inCenter = local.dx > _edgeMargin &&
+        local.dx < size.width - _edgeMargin &&
+        local.dy > _edgeMargin &&
+        local.dy < size.height - _edgeMargin;
+
+    if (inCenter != _isInCenterZone) {
+      _isInCenterZone = inCenter;
+      if (inCenter) {
+        widget.onFocusEnter?.call();
+      } else {
+        widget.onFocusExit?.call();
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return MouseRegion(
       key: _key,
-      onEnter: widget.onFocusEnter != null ? (_) => widget.onFocusEnter!() : null,
-      onExit: widget.onFocusExit != null ? (_) => widget.onFocusExit!() : null,
+      onEnter: (_) {
+        // Don't trigger focus on enter - wait for center zone check
+      },
+      onExit: (_) {
+        if (_isInCenterZone) {
+          _isInCenterZone = false;
+          widget.onFocusExit?.call();
+        }
+      },
       onHover: (event) {
         _lastPointerPosition = event.position;
+        _updateCenterZone(event);
       },
       child: DragTarget<TerminalDragData>(
         onWillAcceptWithDetails: (details) {
@@ -407,37 +442,44 @@ class _SplitContainerState extends State<_SplitContainer> {
         final dividerTotal = dividerThickness * (_ratios.length - 1);
         final availableSize = totalSize - dividerTotal;
 
-        final children = <Widget>[];
+        // Build base children (non-zoomed)
+        final baseChildren = <Widget>[];
+        Widget? zoomedChild;
+        int? zoomedIndex;
+
         for (var i = 0; i < childWidgets.length; i++) {
           final size = availableSize * _ratios[i];
           final shouldZoom = _shouldZoom(i);
 
           Widget child = childWidgets[i];
 
-          // Apply zoom with Transform.scale - this scales visually without changing constraints
           if (shouldZoom) {
-            child = Transform.scale(
+            // Store zoomed child for overlay rendering (z-index on top)
+            zoomedIndex = i;
+            zoomedChild = _AnimatedZoomWrapper(
               scale: widget.focusZoom,
-              child: Material(
-                elevation: 8,
-                shadowColor: Colors.black54,
-                borderRadius: BorderRadius.circular(4),
-                clipBehavior: Clip.antiAlias,
+              child: child,
+            );
+            // Add placeholder for layout
+            baseChildren.add(
+              SizedBox(
+                width: widget.isHorizontal ? size : null,
+                height: widget.isHorizontal ? null : size,
+                child: child, // Original child stays for layout
+              ),
+            );
+          } else {
+            baseChildren.add(
+              SizedBox(
+                width: widget.isHorizontal ? size : null,
+                height: widget.isHorizontal ? null : size,
                 child: child,
               ),
             );
           }
 
-          children.add(
-            SizedBox(
-              width: widget.isHorizontal ? size : null,
-              height: widget.isHorizontal ? null : size,
-              child: child,
-            ),
-          );
-
           if (i < childWidgets.length - 1) {
-            children.add(
+            baseChildren.add(
               GestureDetector(
                 onPanUpdate: (details) => _onDrag(i, details, availableSize),
                 child: MouseRegion(
@@ -455,10 +497,39 @@ class _SplitContainerState extends State<_SplitContainer> {
           }
         }
 
-        // Allow zoomed content to overflow
-        return widget.isHorizontal
-            ? Row(children: children)
-            : Column(children: children);
+        // Base layout
+        Widget baseLayout = widget.isHorizontal
+            ? Row(children: baseChildren)
+            : Column(children: baseChildren);
+
+        // If there's a zoomed child, render it on top using Stack
+        if (zoomedChild != null && zoomedIndex != null) {
+          // Calculate position for zoomed overlay
+          double offset = 0;
+          for (var i = 0; i < zoomedIndex; i++) {
+            offset += availableSize * _ratios[i] + dividerThickness;
+          }
+          final childSize = availableSize * _ratios[zoomedIndex];
+
+          return Stack(
+            clipBehavior: Clip.none,
+            children: [
+              baseLayout,
+              // Zoomed overlay on top
+              Positioned(
+                left: widget.isHorizontal ? offset : 0,
+                top: widget.isHorizontal ? 0 : offset,
+                width: widget.isHorizontal ? childSize : null,
+                height: widget.isHorizontal ? null : childSize,
+                right: widget.isHorizontal ? null : 0,
+                bottom: widget.isHorizontal ? 0 : null,
+                child: zoomedChild,
+              ),
+            ],
+          );
+        }
+
+        return baseLayout;
       },
     );
   }
@@ -482,6 +553,76 @@ class _SplitContainerState extends State<_SplitContainer> {
         _ratios[dividerIndex + 1] = minRatio;
       }
     });
+  }
+}
+
+/// Animated zoom wrapper with ease-out animation
+class _AnimatedZoomWrapper extends StatefulWidget {
+  final double scale;
+  final Widget child;
+
+  const _AnimatedZoomWrapper({
+    required this.scale,
+    required this.child,
+  });
+
+  @override
+  State<_AnimatedZoomWrapper> createState() => _AnimatedZoomWrapperState();
+}
+
+class _AnimatedZoomWrapperState extends State<_AnimatedZoomWrapper>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _scaleAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      duration: const Duration(milliseconds: 200),
+      vsync: this,
+    );
+    _scaleAnimation = Tween<double>(begin: 1.0, end: widget.scale).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeOut),
+    );
+    _controller.forward();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _scaleAnimation,
+      builder: (context, child) {
+        return Transform.scale(
+          scale: _scaleAnimation.value,
+          child: Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(4),
+              border: Border.all(
+                color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.5),
+                width: 1,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.3),
+                  blurRadius: 12,
+                  spreadRadius: 2,
+                ),
+              ],
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: child,
+          ),
+        );
+      },
+      child: widget.child,
+    );
   }
 }
 

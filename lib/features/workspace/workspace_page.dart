@@ -65,32 +65,161 @@ class _WorkspacePageState extends State<WorkspacePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Row(
+      body: SafeArea(
+        child: Column(
           children: [
-            Icon(
-              Icons.hive,
-              color: Theme.of(context).colorScheme.primary,
-              size: 24,
+            // Combined header bar with logo, workspaces, and actions
+            _buildHeaderBar(),
+
+            // Main content - IndexedStack keeps all workspaces alive
+            Expanded(
+              child: IndexedStack(
+                index: _manager.currentIndex,
+                children: [
+                  for (final workspace in _manager.workspaces)
+                    _buildWorkspace(workspace),
+                ],
+              ),
             ),
-            const SizedBox(width: 8),
-            const Text('Hive Terminal'),
           ],
         ),
-        actions: [
-          // Saved connections button
-          IconButton(
-            icon: const Icon(Icons.bookmark),
+      ),
+    );
+  }
+
+  Widget _buildHeaderBar() {
+    final theme = Theme.of(context);
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isMobile = screenWidth < 600;
+
+    return Container(
+      height: 36,
+      color: theme.colorScheme.surfaceContainerLow,
+      child: Row(
+        children: [
+          // Logo and title
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.hive,
+                  color: theme.colorScheme.primary,
+                  size: 18,
+                ),
+                if (!isMobile) ...[
+                  const SizedBox(width: 6),
+                  Text(
+                    'Hive Terminal',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                      color: theme.colorScheme.onSurface,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+
+          // Divider
+          Container(
+            width: 1,
+            height: 20,
+            color: theme.colorScheme.outline.withValues(alpha: 0.2),
+          ),
+
+          // Workspace tabs
+          Expanded(
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              itemCount: _manager.workspaces.length,
+              itemBuilder: (context, index) {
+                final workspace = _manager.workspaces[index];
+                final isSelected = index == _manager.currentIndex;
+
+                return GestureDetector(
+                  onTap: () => _manager.setCurrentIndex(index),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    decoration: BoxDecoration(
+                      border: Border(
+                        bottom: BorderSide(
+                          color: isSelected
+                              ? theme.colorScheme.primary
+                              : Colors.transparent,
+                          width: 2,
+                        ),
+                      ),
+                    ),
+                    alignment: Alignment.center,
+                    child: Row(
+                      children: [
+                        Text(
+                          workspace.name,
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: isSelected
+                                ? FontWeight.w600
+                                : FontWeight.normal,
+                            color: isSelected
+                                ? theme.colorScheme.onSurface
+                                : theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                          ),
+                        ),
+                        if (_manager.workspaces.length > 1)
+                          InkWell(
+                            onTap: () => _manager.removeWorkspace(workspace.id),
+                            child: Padding(
+                              padding: const EdgeInsets.only(left: 6),
+                              child: Icon(
+                                Icons.close,
+                                size: 12,
+                                color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+
+          // Add workspace button
+          _HeaderIconButton(
+            icon: Icons.add,
+            tooltip: 'Add Workspace',
+            onPressed: () => _manager.addWorkspace(),
+          ),
+
+          // Divider
+          Container(
+            width: 1,
+            height: 20,
+            color: theme.colorScheme.outline.withValues(alpha: 0.2),
+          ),
+
+          // Action buttons
+          _HeaderIconButton(
+            icon: Icons.bookmark,
             tooltip: 'Saved Connections',
             onPressed: _openSavedConnections,
           ),
-          IconButton(
-            icon: const Icon(Icons.settings),
+          _HeaderIconButton(
+            icon: Icons.settings,
             tooltip: 'Settings',
             onPressed: _openSettings,
           ),
           PopupMenuButton<String>(
-            icon: const Icon(Icons.more_vert),
+            icon: Icon(
+              Icons.more_vert,
+              size: 16,
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
+            ),
+            padding: EdgeInsets.zero,
             onSelected: (value) {
               switch (value) {
                 case 'check_updates':
@@ -122,102 +251,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
               ),
             ],
           ),
-        ],
-      ),
-      body: Column(
-        children: [
-          // Workspace tabs
-          _buildWorkspaceTabs(),
-
-          // Main content - IndexedStack keeps all workspaces alive
-          Expanded(
-            child: IndexedStack(
-              index: _manager.currentIndex,
-              children: [
-                for (final workspace in _manager.workspaces)
-                  _buildWorkspace(workspace),
-              ],
-            ),
-          ),
-
-        ],
-      ),
-    );
-  }
-
-  Widget _buildWorkspaceTabs() {
-    return Container(
-      height: 36,
-      color: Theme.of(context).colorScheme.surfaceContainerLow,
-      child: Row(
-        children: [
-          Expanded(
-            child: ListView.builder(
-              scrollDirection: Axis.horizontal,
-              itemCount: _manager.workspaces.length,
-              itemBuilder: (context, index) {
-                final workspace = _manager.workspaces[index];
-                final isSelected = index == _manager.currentIndex;
-
-                return GestureDetector(
-                  onTap: () => _manager.setCurrentIndex(index),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    decoration: BoxDecoration(
-                      border: Border(
-                        bottom: BorderSide(
-                          color: isSelected
-                              ? Theme.of(context).colorScheme.primary
-                              : Colors.transparent,
-                          width: 2,
-                        ),
-                      ),
-                    ),
-                    alignment: Alignment.center,
-                    child: Row(
-                      children: [
-                        Text(
-                          workspace.name,
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: isSelected
-                                ? FontWeight.w600
-                                : FontWeight.normal,
-                            color: isSelected
-                                ? Theme.of(context).colorScheme.onSurface
-                                : Theme.of(context)
-                                    .colorScheme
-                                    .onSurface
-                                    .withValues(alpha: 0.6),
-                          ),
-                        ),
-                        if (_manager.workspaces.length > 1)
-                          InkWell(
-                            onTap: () => _manager.removeWorkspace(workspace.id),
-                            child: Padding(
-                              padding: const EdgeInsets.only(left: 8),
-                              child: Icon(
-                                Icons.close,
-                                size: 14,
-                                color: Theme.of(context)
-                                    .colorScheme
-                                    .onSurface
-                                    .withValues(alpha: 0.4),
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.add, size: 18),
-            onPressed: () => _manager.addWorkspace(),
-            tooltip: 'Add Workspace',
-          ),
+          const SizedBox(width: 4),
         ],
       ),
     );
@@ -453,6 +487,38 @@ class _ConnectionChooserSheet extends StatelessWidget {
           ),
           const SizedBox(height: 8),
         ],
+      ),
+    );
+  }
+}
+
+/// Compact icon button for header bar
+class _HeaderIconButton extends StatelessWidget {
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onPressed;
+
+  const _HeaderIconButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: InkWell(
+        onTap: onPressed,
+        borderRadius: BorderRadius.circular(4),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+          child: Icon(
+            icon,
+            size: 16,
+            color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7),
+          ),
+        ),
       ),
     );
   }
