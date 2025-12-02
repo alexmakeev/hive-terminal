@@ -260,7 +260,12 @@ class HiveServerService extends ChangeNotifier {
       if (apiKey != null) {
         _client!.setApiKey(apiKey);
         // Validate to get userId for subsequent requests
-        await validateApiKey(apiKey);
+        final valid = await validateApiKey(apiKey);
+        if (!valid) {
+          debugPrint('[HiveServerService] API key validation failed');
+          // Clear invalid API key
+          _hasApiKey = false;
+        }
       }
     }
 
