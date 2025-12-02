@@ -17,17 +17,50 @@ class FlutterSecureStorageAdapter implements SecureStorage {
   final FlutterSecureStorage _storage;
 
   FlutterSecureStorageAdapter([FlutterSecureStorage? storage])
-      : _storage = storage ?? const FlutterSecureStorage();
+      : _storage = storage ??
+            const FlutterSecureStorage(
+              mOptions: MacOsOptions(
+                accessibility: KeychainAccessibility.first_unlock,
+                useDataProtectionKeyChain: true,
+              ),
+            );
 
   @override
-  Future<String?> read({required String key}) => _storage.read(key: key);
+  Future<String?> read({required String key}) async {
+    debugPrint('[SecureStorage] Reading key: $key');
+    try {
+      final value = await _storage.read(key: key);
+      debugPrint('[SecureStorage] Read success, hasValue: ${value != null}');
+      return value;
+    } catch (e) {
+      debugPrint('[SecureStorage] Read FAILED: $e');
+      rethrow;
+    }
+  }
 
   @override
-  Future<void> write({required String key, required String value}) =>
-      _storage.write(key: key, value: value);
+  Future<void> write({required String key, required String value}) async {
+    debugPrint('[SecureStorage] Writing key: $key');
+    try {
+      await _storage.write(key: key, value: value);
+      debugPrint('[SecureStorage] Write success');
+    } catch (e) {
+      debugPrint('[SecureStorage] Write FAILED: $e');
+      rethrow;
+    }
+  }
 
   @override
-  Future<void> delete({required String key}) => _storage.delete(key: key);
+  Future<void> delete({required String key}) async {
+    debugPrint('[SecureStorage] Deleting key: $key');
+    try {
+      await _storage.delete(key: key);
+      debugPrint('[SecureStorage] Delete success');
+    } catch (e) {
+      debugPrint('[SecureStorage] Delete FAILED: $e');
+      rethrow;
+    }
+  }
 }
 
 /// In-memory implementation for testing
