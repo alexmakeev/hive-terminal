@@ -1,49 +1,59 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:xterm/xterm.dart' as xterm;
-import 'package:xterm/xterm.dart' show Terminal, TerminalController;
+import 'package:xterm/xterm.dart' show Terminal, TerminalController, TerminalKey;
 
-import '../connection/ssh_session.dart';
+import '../../core/hive/hive_client.dart';
+import '../../core/hive/hive_terminal_service.dart';
+import '../../src/generated/hive.pbgrpc.dart';
+import '../connection/connection_config.dart';
 import '../workspace/split_view.dart';
 import '../../shared/widgets/terminal_keyboard.dart';
 
-/// Single terminal view with SSH session
-class SshTerminalView extends StatefulWidget {
+/// Terminal view that connects via Hive Server gRPC
+class HiveTerminalView extends StatefulWidget {
   final ConnectionConfig config;
   final String? nodeId;
+  final HiveClient? client;
   final VoidCallback? onClose;
   final VoidCallback? onSplitHorizontal;
   final VoidCallback? onSplitVertical;
   final VoidCallback? onDragStart;
   final VoidCallback? onDragEnd;
   final bool showControls;
-  final String? sshFolderPath;
 
-  const SshTerminalView({
+  const HiveTerminalView({
     super.key,
     required this.config,
     this.nodeId,
+    this.client,
     this.onClose,
     this.onSplitHorizontal,
     this.onSplitVertical,
     this.onDragStart,
     this.onDragEnd,
     this.showControls = true,
-    this.sshFolderPath,
   });
 
   @override
-  State<SshTerminalView> createState() => _SshTerminalViewState();
+  State<HiveTerminalView> createState() => _HiveTerminalViewState();
 }
 
-class _SshTerminalViewState extends State<SshTerminalView>
+class _HiveTerminalViewState extends State<HiveTerminalView>
     with SingleTickerProviderStateMixin {
   late final Terminal _terminal;
   late final TerminalController _terminalController;
-  late final SshSession _session;
   SessionState _sessionState = SessionState.disconnected;
   bool _showToolbar = true;
+  String? _errorMessage;
+
+  // gRPC streaming
+  HiveTerminalService? _terminalService;
+  Session? _session;
+  TerminalStream? _terminalStream;
+  StreamSubscription<TerminalOutput>? _outputSubscription;
 
   // Zoom state
   double _zoom = 1.0;
@@ -53,6 +63,7 @@ class _SshTerminalViewState extends State<SshTerminalView>
   static const double _maxZoom = 1.5;
 
   bool get _isMobile => Platform.isAndroid || Platform.isIOS;
+  bool get _hasClient => widget.client != null && widget.client!.isConnected;
 
   @override
   void initState() {
@@ -69,35 +80,233 @@ class _SshTerminalViewState extends State<SshTerminalView>
 
     _terminalController = TerminalController();
 
-    _session = SshSession(
-      config: widget.config,
-      terminal: _terminal,
-      sshFolderPath: widget.sshFolderPath,
-      onStateChange: (state) {
-        if (mounted) {
-          setState(() => _sessionState = state);
-        }
-      },
-      onPassphraseRequest: _showPassphraseDialog,
-    );
-
-    // Handle terminal input
+    // Handle terminal input - send to gRPC stream
     _terminal.onOutput = (data) {
-      _session.write(data);
+      _sendData(data);
     };
 
-    // Connect after first frame when context is ready for dialogs
+    // Show placeholder message and attempt connection
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _session.connect();
+      _connect();
     });
   }
 
   @override
   void dispose() {
+    _disconnect();
     _zoomAnimController.dispose();
-    _session.dispose();
     _terminalController.dispose();
     super.dispose();
+  }
+
+  void _sendData(String data) {
+    if (_terminalStream != null && !_terminalStream!.isClosed) {
+      _terminalStream!.sendData(data.codeUnits);
+    }
+  }
+
+  void _sendResize(int cols, int rows) {
+    if (_terminalStream != null && !_terminalStream!.isClosed) {
+      _terminalStream!.sendResize(cols, rows);
+    }
+  }
+
+  Future<void> _disconnect() async {
+    await _outputSubscription?.cancel();
+    _outputSubscription = null;
+
+    await _terminalStream?.close();
+    _terminalStream = null;
+
+    if (_session != null && _terminalService != null) {
+      await _terminalService!.closeSession(_session!.id);
+    }
+    _session = null;
+  }
+
+  Future<void> _connect() async {
+    // Disconnect any existing connection first
+    await _disconnect();
+
+    setState(() {
+      _sessionState = SessionState.connecting;
+      _errorMessage = null;
+    });
+
+    _terminal.write('Connecting to ${widget.config.host}:${widget.config.port}...\r\n');
+
+    // Check if we have a valid client
+    if (!_hasClient) {
+      _terminal.write('\x1B[33mNo Hive Server connection.\x1B[0m\r\n');
+      _terminal.write('\x1B[90mConfigure Hive Server in Settings to connect.\x1B[0m\r\n');
+      setState(() {
+        _sessionState = SessionState.disconnected;
+        _errorMessage = 'No Hive Server connection';
+      });
+      return;
+    }
+
+    _terminalService = HiveTerminalService(client: widget.client!);
+
+    // Create session for this connection
+    _terminal.write('Creating session...\r\n');
+
+    // Password is required for SSH authentication
+    if (widget.config.password == null || widget.config.password!.isEmpty) {
+      _terminal.write('\x1B[31mPassword required for SSH authentication.\x1B[0m\r\n');
+      setState(() {
+        _sessionState = SessionState.error;
+        _errorMessage = 'Password required';
+      });
+      return;
+    }
+
+    _session = await _terminalService!.createSession(
+      widget.config.id,
+      password: widget.config.password!,
+    );
+
+    if (_session == null) {
+      _terminal.write('\x1B[31mFailed to create session.\x1B[0m\r\n');
+      setState(() {
+        _sessionState = SessionState.error;
+        _errorMessage = 'Failed to create session';
+      });
+      return;
+    }
+
+    _terminal.write('Session created: ${_session!.id}\r\n');
+
+    // Attach to terminal stream
+    _terminal.write('Attaching to terminal...\r\n');
+    _terminalStream = _terminalService!.attach(_session!.id);
+
+    if (_terminalStream == null) {
+      _terminal.write('\x1B[31mFailed to attach to terminal.\x1B[0m\r\n');
+      setState(() {
+        _sessionState = SessionState.error;
+        _errorMessage = 'Failed to attach to terminal';
+      });
+      return;
+    }
+
+    // Listen to terminal output
+    _outputSubscription = _terminalStream!.output.listen(
+      _handleOutput,
+      onError: _handleStreamError,
+      onDone: _handleStreamDone,
+    );
+
+    _terminal.write('\x1B[32mConnected!\x1B[0m\r\n\r\n');
+    setState(() => _sessionState = SessionState.connected);
+  }
+
+  void _handleOutput(TerminalOutput output) {
+    if (HiveTerminalService.isData(output)) {
+      // Write terminal data
+      _terminal.write(String.fromCharCodes(output.data));
+    } else if (HiveTerminalService.isScrollback(output)) {
+      // Write scrollback data (on reconnect)
+      _terminal.write(String.fromCharCodes(output.scrollback));
+    } else if (HiveTerminalService.isError(output)) {
+      // Handle error
+      final error = output.error;
+      _terminal.write('\x1B[31mError: ${error.message}\x1B[0m\r\n');
+      setState(() {
+        _sessionState = SessionState.error;
+        _errorMessage = error.message;
+      });
+    } else if (HiveTerminalService.isClosed(output)) {
+      // Session closed by server
+      final closed = output.closed;
+      _terminal.write('\r\n\x1B[33mSession closed: ${closed.reason}\x1B[0m\r\n');
+      setState(() {
+        _sessionState = SessionState.disconnected;
+        _errorMessage = closed.reason;
+      });
+    } else if (HiveTerminalService.isFileUploaded(output)) {
+      // File upload confirmation
+      final file = output.file;
+      _terminal.write('\x1B[32mFile uploaded: ${file.filename}\x1B[0m\r\n');
+    }
+  }
+
+  void _handleStreamError(Object error) {
+    debugPrint('Terminal stream error: $error');
+    _terminal.write('\r\n\x1B[31mStream error: $error\x1B[0m\r\n');
+    setState(() {
+      _sessionState = SessionState.error;
+      _errorMessage = error.toString();
+    });
+  }
+
+  void _handleStreamDone() {
+    debugPrint('Terminal stream closed');
+    if (_sessionState == SessionState.connected) {
+      _terminal.write('\r\n\x1B[33mConnection closed.\x1B[0m\r\n');
+      setState(() => _sessionState = SessionState.disconnected);
+    }
+  }
+
+  /// Convert TerminalKey enum to escape sequence string
+  String? _terminalKeyToSequence(TerminalKey key, {bool ctrl = false, bool alt = false}) {
+    // Standard escape sequences for terminal keys
+    switch (key) {
+      case TerminalKey.escape:
+        return '\x1B';
+      case TerminalKey.tab:
+        return '\t';
+      case TerminalKey.enter:
+        return '\r';
+      case TerminalKey.backspace:
+        return '\x7F';
+      case TerminalKey.delete:
+        return '\x1B[3~';
+      case TerminalKey.insert:
+        return '\x1B[2~';
+      case TerminalKey.home:
+        return '\x1B[H';
+      case TerminalKey.end:
+        return '\x1B[F';
+      case TerminalKey.pageUp:
+        return '\x1B[5~';
+      case TerminalKey.pageDown:
+        return '\x1B[6~';
+      case TerminalKey.arrowUp:
+        return '\x1B[A';
+      case TerminalKey.arrowDown:
+        return '\x1B[B';
+      case TerminalKey.arrowRight:
+        return '\x1B[C';
+      case TerminalKey.arrowLeft:
+        return '\x1B[D';
+      case TerminalKey.f1:
+        return '\x1BOP';
+      case TerminalKey.f2:
+        return '\x1BOQ';
+      case TerminalKey.f3:
+        return '\x1BOR';
+      case TerminalKey.f4:
+        return '\x1BOS';
+      case TerminalKey.f5:
+        return '\x1B[15~';
+      case TerminalKey.f6:
+        return '\x1B[17~';
+      case TerminalKey.f7:
+        return '\x1B[18~';
+      case TerminalKey.f8:
+        return '\x1B[19~';
+      case TerminalKey.f9:
+        return '\x1B[20~';
+      case TerminalKey.f10:
+        return '\x1B[21~';
+      case TerminalKey.f11:
+        return '\x1B[23~';
+      case TerminalKey.f12:
+        return '\x1B[24~';
+      default:
+        return null;
+    }
   }
 
   @override
@@ -127,9 +336,15 @@ class _SshTerminalViewState extends State<SshTerminalView>
             // Extra keyboard (mobile only)
             if (_isMobile && _showToolbar)
               TerminalKeyboard(
-                onText: (text) => _session.write(text),
+                onText: (text) {
+                  _sendData(text);
+                },
                 onKey: (key, {ctrl = false, alt = false}) {
-                  _session.sendKey(key, ctrl: ctrl, alt: alt);
+                  // Convert TerminalKey to escape sequences
+                  final data = _terminalKeyToSequence(key, ctrl: ctrl, alt: alt);
+                  if (data != null) {
+                    _sendData(data);
+                  }
                 },
               ),
           ],
@@ -214,17 +429,28 @@ class _SshTerminalViewState extends State<SshTerminalView>
                       Text(
                         _sessionState == SessionState.error
                             ? 'Connection Error'
-                            : 'Disconnected',
+                            : 'Not Connected',
                         style: const TextStyle(
                           fontSize: 16,
                           color: Colors.white70,
                         ),
                       ),
+                      if (_errorMessage != null) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          _errorMessage!,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Colors.white38,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
                       const SizedBox(height: 24),
                       FilledButton.icon(
-                        onPressed: () => _session.connect(),
+                        onPressed: _connect,
                         icon: const Icon(Icons.refresh),
-                        label: const Text('Reconnect'),
+                        label: const Text('Retry'),
                         style: FilledButton.styleFrom(
                           padding: const EdgeInsets.symmetric(
                             horizontal: 32,
@@ -366,7 +592,7 @@ class _SshTerminalViewState extends State<SshTerminalView>
             _ControlButton(
               icon: Icons.refresh,
               tooltip: 'Reconnect',
-              onTap: () => _session.connect(),
+              onTap: _connect,
             ),
 
           // Close button
@@ -430,51 +656,6 @@ class _SshTerminalViewState extends State<SshTerminalView>
       case SessionState.disconnected:
         return Colors.grey;
     }
-  }
-
-  Future<String?> _showPassphraseDialog(String keyName) async {
-    final controller = TextEditingController();
-
-    return showDialog<String>(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) {
-        return AlertDialog(
-          title: Text('SSH Key Passphrase'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Key "$keyName" is encrypted.',
-                style: TextStyle(fontSize: 14),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: controller,
-                obscureText: true,
-                autofocus: true,
-                decoration: const InputDecoration(
-                  labelText: 'Passphrase',
-                  border: OutlineInputBorder(),
-                ),
-                onSubmitted: (value) => Navigator.of(ctx).pop(value),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(null),
-              child: const Text('Skip'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(ctx).pop(controller.text),
-              child: const Text('Unlock'),
-            ),
-          ],
-        );
-      },
-    );
   }
 }
 

@@ -116,6 +116,7 @@ message SessionListResponse {
 
 message CreateSessionRequest {
   string connection_id = 1;
+  string password = 2;  // Password for SSH authentication (not stored)
 }
 
 message CloseSessionRequest {

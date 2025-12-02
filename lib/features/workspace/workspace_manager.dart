@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
 
-import '../connection/ssh_session.dart';
+import '../connection/connection_config.dart';
 
 /// Drop position for drag & drop
 enum DropPosition { left, right, top, bottom }

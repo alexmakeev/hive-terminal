@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use sqlx::PgPool;
 use tonic::{Request, Response, Status};
 use tracing::info;
@@ -9,14 +11,16 @@ use crate::proto::{
     CloseSessionRequest, CreateSessionRequest, Empty, Session as ProtoSession,
     SessionListResponse,
 };
+use crate::terminal::SessionManager;
 
 pub struct SessionsService {
     pool: PgPool,
+    session_manager: Arc<SessionManager>,
 }
 
 impl SessionsService {
-    pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+    pub fn new(pool: PgPool, session_manager: Arc<SessionManager>) -> Self {
+        Self { pool, session_manager }
     }
 
     fn extract_user_id(request: &Request<impl std::fmt::Debug>) -> Result<Uuid, Status> {
@@ -87,9 +91,17 @@ impl Sessions for SessionsService {
             return Err(Status::permission_denied("Not authorized to use this connection"));
         }
 
-        let session = Session::create(&self.pool, user_id, connection_id)
+        // Create SSH session via SessionManager (establishes connection)
+        let (session_id, _output_rx) = self.session_manager
+            .create_session(user_id, connection_id, 80, 24, &req.password)
             .await
             .map_err(|e| Status::internal(format!("Failed to create session: {}", e)))?;
+
+        // Get session from DB for response
+        let session = Session::find_by_id(&self.pool, session_id)
+            .await
+            .map_err(|e| Status::internal(format!("Database error: {}", e)))?
+            .ok_or_else(|| Status::internal("Session not found after creation"))?;
 
         info!(
             "Created session {} for connection {} (user {})",

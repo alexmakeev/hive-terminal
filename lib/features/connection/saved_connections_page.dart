@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'connection_dialog.dart';
 import 'connection_repository.dart';
-import 'ssh_session.dart';
+import 'connection_config.dart';
 
 /// Page for managing saved connections
 class SavedConnectionsPage extends StatefulWidget {

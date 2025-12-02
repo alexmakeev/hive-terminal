@@ -47,9 +47,6 @@ dependencies:
   # Terminal emulator
   xterm: ^4.0.0
 
-  # SSH client (pure Dart)
-  dartssh2: ^2.9.0
-
   # UUID for session IDs
   uuid: ^4.2.0
 
@@ -62,9 +59,9 @@ dependencies:
   # File picker for folder selection
   file_picker: ^8.0.0
 
-  # MOSH client (local package)
-  mosh_client:
-    path: packages/mosh_client
+  # gRPC for Hive Server communication
+  grpc: ^5.0.0
+  protobuf: ^5.0.0
 
 dev_dependencies:
   flutter_test:

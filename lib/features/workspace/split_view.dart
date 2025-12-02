@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
-import '../connection/ssh_session.dart';
-import '../terminal/mosh_terminal_view.dart';
-import '../terminal/terminal_view.dart';
+import '../../core/hive/hive_client.dart';
+import '../connection/connection_config.dart';
+import '../terminal/hive_terminal_view.dart';
 import 'workspace_manager.dart';
 
 /// Data for terminal drag
@@ -15,18 +15,18 @@ class TerminalDragData {
 /// Renders a split node tree
 class SplitView extends StatefulWidget {
   final SplitNode node;
+  final HiveClient? client;
   final void Function(String nodeId) onClose;
   final void Function(String nodeId, bool horizontal) onSplit;
   final void Function(String sourceId, String targetId, DropPosition position)? onMove;
-  final String? sshFolderPath;
 
   const SplitView({
     super.key,
     required this.node,
+    this.client,
     required this.onClose,
     required this.onSplit,
     this.onMove,
-    this.sshFolderPath,
   });
 
   @override
@@ -99,29 +99,17 @@ class _SplitViewState extends State<SplitView> {
         onDrop: widget.onMove != null
             ? (sourceId, position) => widget.onMove!(sourceId, node.id, position)
             : null,
-        child: node.pane.config.protocol == ConnectionProtocol.mosh
-            ? MoshTerminalView(
-                key: node.pane.key,
-                config: node.pane.config,
-                nodeId: node.id,
-                sshFolderPath: widget.sshFolderPath,
-                onClose: () => widget.onClose(node.id),
-                onSplitHorizontal: () => widget.onSplit(node.id, true),
-                onSplitVertical: () => widget.onSplit(node.id, false),
-                onDragStart: () => setState(() => _draggingId = node.id),
-                onDragEnd: () => setState(() => _draggingId = null),
-              )
-            : SshTerminalView(
-                key: node.pane.key,
-                config: node.pane.config,
-                nodeId: node.id,
-                sshFolderPath: widget.sshFolderPath,
-                onClose: () => widget.onClose(node.id),
-                onSplitHorizontal: () => widget.onSplit(node.id, true),
-                onSplitVertical: () => widget.onSplit(node.id, false),
-                onDragStart: () => setState(() => _draggingId = node.id),
-                onDragEnd: () => setState(() => _draggingId = null),
-              ),
+        child: HiveTerminalView(
+          key: node.pane.key,
+          config: node.pane.config,
+          nodeId: node.id,
+          client: widget.client,
+          onClose: () => widget.onClose(node.id),
+          onSplitHorizontal: () => widget.onSplit(node.id, true),
+          onSplitVertical: () => widget.onSplit(node.id, false),
+          onDragStart: () => setState(() => _draggingId = node.id),
+          onDragEnd: () => setState(() => _draggingId = null),
+        ),
       );
     }
 

@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 
+import '../../core/hive/hive_server_service.dart';
 import '../connection/connection_dialog.dart';
 import '../connection/connection_repository.dart';
 import '../connection/saved_connections_page.dart';
-import '../connection/ssh_session.dart';
+import '../connection/connection_config.dart';
 import '../settings/settings_manager.dart';
 import '../settings/settings_page.dart';
 import 'split_view.dart';
@@ -28,6 +29,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
   late final WorkspaceManager _manager;
   late final ConnectionRepository _connectionRepository;
   late final SettingsManager _settings;
+  late final HiveServerService _hiveServer;
 
   @override
   void initState() {
@@ -35,11 +37,14 @@ class _WorkspacePageState extends State<WorkspacePage> {
     _manager = WorkspaceManager();
     _connectionRepository = ConnectionRepository();
     _settings = SettingsManager();
+    _hiveServer = HiveServerService();
     _connectionRepository.load();
     _settings.load();
+    _hiveServer.load();
     _manager.addListener(_onManagerChanged);
     _connectionRepository.addListener(_onRepositoryChanged);
     _settings.addListener(_onSettingsChanged);
+    _hiveServer.addListener(_onHiveServerChanged);
   }
 
   @override
@@ -47,7 +52,13 @@ class _WorkspacePageState extends State<WorkspacePage> {
     _manager.removeListener(_onManagerChanged);
     _connectionRepository.removeListener(_onRepositoryChanged);
     _settings.removeListener(_onSettingsChanged);
+    _hiveServer.removeListener(_onHiveServerChanged);
+    _hiveServer.dispose();
     super.dispose();
+  }
+
+  void _onHiveServerChanged() {
+    if (mounted) setState(() {});
   }
 
   void _onRepositoryChanged() {
@@ -266,7 +277,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
       padding: const EdgeInsets.all(8),
       child: SplitView(
         node: workspace.root!,
-        sshFolderPath: _settings.sshFolderPath,
+        client: _hiveServer.client,
         onClose: (nodeId) => _manager.closeTerminal(nodeId),
         onSplit: (nodeId, horizontal) async {
           final result = await _showConnectionChooser();
@@ -349,7 +360,10 @@ class _WorkspacePageState extends State<WorkspacePage> {
   void _openSettings() {
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (context) => SettingsPage(settings: _settings),
+        builder: (context) => SettingsPage(
+          settings: _settings,
+          hiveServer: _hiveServer,
+        ),
       ),
     );
   }

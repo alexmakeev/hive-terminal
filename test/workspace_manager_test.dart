@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:hive_terminal/features/connection/ssh_session.dart';
+import 'package:hive_terminal/features/connection/connection_config.dart';
 import 'package:hive_terminal/features/workspace/workspace_manager.dart';
 
 void main() {

@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
 
-import 'ssh_session.dart';
+import 'connection_config.dart';
 
 /// Result from connection dialog
 class ConnectionDialogResult {

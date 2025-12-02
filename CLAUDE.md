@@ -61,3 +61,46 @@ See `architecture.md` for full technical details.
 - **Patch (x.x.X)** - default for all changes (features, fixes, improvements)
 - **Minor (x.X.0)** - only for breaking changes or incompatibilities
 - **Major (X.0.0)** - only when explicitly requested by user
+
+## Development Methodology: TDD
+
+**Test-Driven Development обязателен:**
+1. Сначала пишем тесты для новой функциональности
+2. Запускаем тесты - они должны FAIL (red)
+3. Имплементируем минимальный код для прохождения тестов (green)
+4. Рефакторим при необходимости
+5. После каждого этапа/фазы - все тесты должны проходить
+
+**Тестирование:**
+- Unit тесты для бизнес-логики
+- Widget тесты для UI компонентов
+- Integration тесты для E2E сценариев
+- После каждой фазы - полный прогон всех тестов
+
+## Hive Server Integration
+
+Приложение поддерживает два режима:
+1. **Server mode** - через Hive Server (gRPC) для persistence и multi-device
+2. **Direct mode** - прямое SSH подключение (fallback)
+
+**Server:** `server/` - Rust gRPC сервер
+**Proto:** `server/proto/hive.proto` - API definition
+**Generated:** `lib/src/generated/` - Dart gRPC клиент
+
+### Запуск для разработки
+
+```bash
+# Сервер (в server/)
+docker compose up -d
+DATABASE_URL="postgres://hive:hive@localhost:5432/hive" cargo run -- serve
+
+# Flutter (в корне)
+flutter run
+```
+
+### E2E тесты
+
+```bash
+# Запуск сервера + тесты
+./scripts/e2e_test.sh
+```

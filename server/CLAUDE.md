@@ -24,6 +24,11 @@
 - Session recovery after disconnect
 - E2E tests for persistence and recovery
 
+### Phase 5: Flutter Client Integration (Complete)
+- Sessions.Create accepts password for SSH authentication
+- Flutter E2E tests (10 tests) with real server
+- Test user: `e2e-test-user` with API key `e2e-test-api-key`
+
 ## Architecture
 
 ### gRPC Services
@@ -77,9 +82,15 @@ docker compose down
 
 ## Test Coverage
 
+### Rust Server Tests (23 total)
 - auth_test.rs: 4 tests (user CRUD, API key operations)
 - connection_test.rs: 3 tests (connection CRUD, sessions)
 - ssh_test.rs: 4 tests (SSH connection, commands, resize, auth)
 - terminal_test.rs: 12 tests (session manager, multi-client, scrollback, recovery)
 
-Total: 23 integration tests
+### Flutter E2E Tests (10 total)
+Run from project root:
+```bash
+flutter test test/integration/e2e_test.dart --tags=e2e
+```
+Tests: Server connection, API key validation, Connections CRUD, Terminal session lifecycle, Terminal resize

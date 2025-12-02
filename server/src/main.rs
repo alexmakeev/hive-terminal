@@ -58,7 +58,7 @@ async fn main() -> anyhow::Result<()> {
 
             let auth_service = AuthService::new(pool.clone());
             let connections_service = ConnectionsService::new(pool.clone());
-            let sessions_service = SessionsService::new(pool.clone());
+            let sessions_service = SessionsService::new(pool.clone(), session_manager.clone());
             let terminal_service = TerminalService::new(session_manager);
 
             Server::builder()
