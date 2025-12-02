@@ -1,3 +1,4 @@
+import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -63,6 +64,37 @@ class FlutterSecureStorageAdapter implements SecureStorage {
   }
 }
 
+/// TEMPORARY: SharedPreferences fallback for macOS Keychain issues
+/// TODO: Remove this once Keychain entitlements are fixed
+class SharedPrefsSecureStorage implements SecureStorage {
+  static const _prefix = 'secure_';
+
+  @override
+  Future<String?> read({required String key}) async {
+    debugPrint('[SharedPrefsStorage] Reading key: $key');
+    final prefs = await SharedPreferences.getInstance();
+    final value = prefs.getString('$_prefix$key');
+    debugPrint('[SharedPrefsStorage] Read success, hasValue: ${value != null}');
+    return value;
+  }
+
+  @override
+  Future<void> write({required String key, required String value}) async {
+    debugPrint('[SharedPrefsStorage] Writing key: $key');
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('$_prefix$key', value);
+    debugPrint('[SharedPrefsStorage] Write success');
+  }
+
+  @override
+  Future<void> delete({required String key}) async {
+    debugPrint('[SharedPrefsStorage] Deleting key: $key');
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('$_prefix$key');
+    debugPrint('[SharedPrefsStorage] Delete success');
+  }
+}
+
 /// In-memory implementation for testing
 class InMemorySecureStorage implements SecureStorage {
   final Map<String, String> _storage = {};
@@ -100,7 +132,19 @@ class HiveServerService extends ChangeNotifier {
   HiveClient? _client;
 
   HiveServerService({SecureStorage? secureStorage})
-      : _secureStorage = secureStorage ?? FlutterSecureStorageAdapter();
+      : _secureStorage = secureStorage ?? _createDefaultStorage();
+
+  /// Create platform-appropriate storage
+  /// macOS: Use SharedPreferences (temporary workaround for Keychain issues)
+  /// Other platforms: Use FlutterSecureStorage
+  static SecureStorage _createDefaultStorage() {
+    if (Platform.isMacOS) {
+      debugPrint('[HiveServerService] Using SharedPrefsSecureStorage (macOS workaround)');
+      return SharedPrefsSecureStorage();
+    }
+    debugPrint('[HiveServerService] Using FlutterSecureStorageAdapter');
+    return FlutterSecureStorageAdapter();
+  }
 
   /// Server host (e.g., "localhost" or "hive.example.com")
   String? get serverHost => _serverHost;
