@@ -10,7 +10,7 @@
 	<true/>
 	<key>com.apple.security.keychain-access-groups</key>
 	<array>
-		<string>$(AppIdentifierPrefix)com.alexmakeev.hive-terminal</string>
+		<string>$(AppIdentifierPrefix)com.hiveterminal.hiveTerminal</string>
 	</array>
 </dict>
 </plist>
