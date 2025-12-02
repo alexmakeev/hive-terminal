@@ -105,12 +105,6 @@ class _HiveTerminalViewState extends State<HiveTerminalView>
     }
   }
 
-  void _sendResize(int cols, int rows) {
-    if (_terminalStream != null && !_terminalStream!.isClosed) {
-      _terminalStream!.sendResize(cols, rows);
-    }
-  }
-
   Future<void> _disconnect() async {
     await _outputSubscription?.cancel();
     _outputSubscription = null;

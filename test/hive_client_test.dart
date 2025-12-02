@@ -2,7 +2,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:grpc/grpc.dart';
 
 import 'package:hive_terminal/core/hive/hive_client.dart';
-import 'package:hive_terminal/src/generated/hive.pb.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

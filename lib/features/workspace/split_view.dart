@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../../core/hive/hive_client.dart';
-import '../connection/connection_config.dart';
 import '../terminal/hive_terminal_view.dart';
 import 'workspace_manager.dart';
 
