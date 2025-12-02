@@ -1,0 +1,3 @@
+tags:
+  e2e:
+    skip: "Integration tests require running Hive server"
