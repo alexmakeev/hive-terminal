@@ -1,0 +1,172 @@
+syntax = "proto3";
+
+package hive;
+
+// Empty message for requests with no parameters
+message Empty {}
+
+// Authentication service
+service Auth {
+  rpc ValidateApiKey(ApiKeyRequest) returns (AuthResponse);
+}
+
+message ApiKeyRequest {
+  string api_key = 1;
+}
+
+message AuthResponse {
+  bool valid = 1;
+  string user_id = 2;
+  string username = 3;
+}
+
+// SSH Key management
+service Keys {
+  rpc List(Empty) returns (KeyListResponse);
+  rpc Create(CreateKeyRequest) returns (Key);
+  rpc Delete(DeleteKeyRequest) returns (Empty);
+}
+
+message Key {
+  string id = 1;
+  string name = 2;
+  string public_key = 3;
+  string created_at = 4;
+}
+
+message KeyListResponse {
+  repeated Key keys = 1;
+}
+
+message CreateKeyRequest {
+  string name = 1;
+  string private_key = 2;
+  string public_key = 3;
+}
+
+message DeleteKeyRequest {
+  string id = 1;
+}
+
+// Connection configuration management
+service Connections {
+  rpc List(Empty) returns (ConnectionListResponse);
+  rpc Create(CreateConnectionRequest) returns (Connection);
+  rpc Update(UpdateConnectionRequest) returns (Connection);
+  rpc Delete(DeleteConnectionRequest) returns (Empty);
+}
+
+message Connection {
+  string id = 1;
+  string name = 2;
+  string host = 3;
+  int32 port = 4;
+  string username = 5;
+  string ssh_key_id = 6;
+  string startup_command = 7;
+  string created_at = 8;
+}
+
+message ConnectionListResponse {
+  repeated Connection connections = 1;
+}
+
+message CreateConnectionRequest {
+  string name = 1;
+  string host = 2;
+  int32 port = 3;
+  string username = 4;
+  string ssh_key_id = 5;
+  string startup_command = 6;
+}
+
+message UpdateConnectionRequest {
+  string id = 1;
+  string name = 2;
+  string host = 3;
+  int32 port = 4;
+  string username = 5;
+  string ssh_key_id = 6;
+  string startup_command = 7;
+}
+
+message DeleteConnectionRequest {
+  string id = 1;
+}
+
+// Session management
+service Sessions {
+  rpc List(Empty) returns (SessionListResponse);
+  rpc Create(CreateSessionRequest) returns (Session);
+  rpc Close(CloseSessionRequest) returns (Empty);
+}
+
+message Session {
+  string id = 1;
+  string connection_id = 2;
+  string connection_name = 3;
+  string status = 4;  // active, suspended, closed
+  string created_at = 5;
+  string last_activity = 6;
+}
+
+message SessionListResponse {
+  repeated Session sessions = 1;
+}
+
+message CreateSessionRequest {
+  string connection_id = 1;
+}
+
+message CloseSessionRequest {
+  string id = 1;
+}
+
+// Terminal I/O (bidirectional streaming)
+service Terminal {
+  rpc Attach(stream TerminalInput) returns (stream TerminalOutput);
+}
+
+message TerminalInput {
+  string session_id = 1;
+  oneof payload {
+    bytes data = 2;
+    Resize resize = 3;
+    FileUpload file = 4;
+  }
+}
+
+message Resize {
+  uint32 cols = 1;
+  uint32 rows = 2;
+}
+
+message FileUpload {
+  string filename = 1;
+  bytes data = 2;
+}
+
+message TerminalOutput {
+  oneof payload {
+    bytes data = 1;
+    bytes scrollback = 2;
+    FileUploaded file = 3;
+    SessionClosed closed = 4;
+    Error error = 5;
+  }
+}
+
+message FileUploaded {
+  string path = 1;
+  string filename = 2;
+}
+
+message SessionClosed {
+  string session_id = 1;
+  string reason = 2;
+}
+
+message Error {
+  string code = 1;
+  string message = 2;
+}
