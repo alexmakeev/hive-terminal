@@ -262,9 +262,9 @@ class HiveServerService extends ChangeNotifier {
         // Validate to get userId for subsequent requests
         final valid = await validateApiKey(apiKey);
         if (!valid) {
-          debugPrint('[HiveServerService] API key validation failed');
-          // Clear invalid API key
-          _hasApiKey = false;
+          debugPrint('[HiveServerService] API key validation failed, disconnecting');
+          await disconnect();
+          throw StateError('Invalid API key');
         }
       }
     }

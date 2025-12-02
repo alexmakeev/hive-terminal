@@ -323,31 +323,16 @@ class _SettingsPageState extends State<SettingsPage> {
 
       if (mounted) {
         final username = widget.hiveServer.username;
-        final hasValidKey = widget.hiveServer.hasApiKey;
-
-        if (username != null) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Welcome, $username!'),
-              backgroundColor: Colors.green,
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              username != null
+                  ? 'Welcome, $username!'
+                  : 'Connected to Hive Server',
             ),
-          );
-        } else if (!hasValidKey && apiKey.isNotEmpty) {
-          // API key was provided but validation failed
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: const Text('Connected, but API key is invalid'),
-              backgroundColor: Colors.orange,
-            ),
-          );
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Connected to Hive Server'),
-              backgroundColor: Colors.green,
-            ),
-          );
-        }
+            backgroundColor: Colors.green,
+          ),
+        );
       }
     } catch (e) {
       if (mounted) {
