@@ -1,9 +1,10 @@
 import 'dart:convert';
+import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../core/hive/hive_server_service.dart';
 import 'connection_config.dart';
 
 /// Repository for managing saved connections
@@ -11,12 +12,22 @@ class ConnectionRepository extends ChangeNotifier {
   static const String _connectionsKey = 'saved_connections';
   static const String _orderKey = 'connections_order';
 
-  final FlutterSecureStorage _secureStorage;
+  final SecureStorage _secureStorage;
   List<ConnectionConfig> _connections = [];
   bool _loaded = false;
 
-  ConnectionRepository({FlutterSecureStorage? secureStorage})
-      : _secureStorage = secureStorage ?? const FlutterSecureStorage();
+  ConnectionRepository({SecureStorage? secureStorage})
+      : _secureStorage = secureStorage ?? _createDefaultStorage();
+
+  /// Create platform-appropriate storage
+  static SecureStorage _createDefaultStorage() {
+    if (Platform.isMacOS) {
+      debugPrint('[ConnectionRepository] Using SharedPrefsSecureStorage (macOS workaround)');
+      return SharedPrefsSecureStorage();
+    }
+    debugPrint('[ConnectionRepository] Using FlutterSecureStorageAdapter');
+    return FlutterSecureStorageAdapter();
+  }
 
   List<ConnectionConfig> get connections => List.unmodifiable(_connections);
   bool get isLoaded => _loaded;
@@ -176,30 +187,33 @@ class ConnectionRepository extends ChangeNotifier {
         'passphrase=${config.passphrase != null ? "set" : "null"}');
 
     try {
-      if (config.password != null) {
+      final password = config.password;
+      if (password != null) {
         await _secureStorage.write(
           key: '${config.id}_password',
-          value: config.password,
+          value: password,
         );
         debugPrint('[SAVE] password written');
       } else {
         await _secureStorage.delete(key: '${config.id}_password');
       }
 
-      if (config.privateKey != null) {
+      final privateKey = config.privateKey;
+      if (privateKey != null) {
         await _secureStorage.write(
           key: '${config.id}_privateKey',
-          value: config.privateKey,
+          value: privateKey,
         );
         debugPrint('[SAVE] privateKey written');
       } else {
         await _secureStorage.delete(key: '${config.id}_privateKey');
       }
 
-      if (config.passphrase != null) {
+      final passphrase = config.passphrase;
+      if (passphrase != null) {
         await _secureStorage.write(
           key: '${config.id}_passphrase',
-          value: config.passphrase,
+          value: passphrase,
         );
         debugPrint('[SAVE] passphrase written');
       } else {

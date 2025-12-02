@@ -107,7 +107,9 @@ class _SettingsPageState extends State<SettingsPage> {
                         ),
                         const SizedBox(width: 4),
                         Text(
-                          'API key set',
+                          widget.hiveServer.username != null
+                              ? widget.hiveServer.username!
+                              : 'API key set',
                           style: TextStyle(
                             fontSize: 12,
                             color: Colors.green,
@@ -320,9 +322,14 @@ class _SettingsPageState extends State<SettingsPage> {
       await widget.hiveServer.connect();
 
       if (mounted) {
+        final username = widget.hiveServer.username;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Connected to Hive Server'),
+          SnackBar(
+            content: Text(
+              username != null
+                  ? 'Welcome, $username!'
+                  : 'Connected to Hive Server',
+            ),
             backgroundColor: Colors.green,
           ),
         );

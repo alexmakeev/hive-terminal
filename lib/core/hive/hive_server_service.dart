@@ -128,6 +128,7 @@ class HiveServerService extends ChangeNotifier {
   int? _serverPort;
   bool _hasApiKey = false;
   bool _loaded = false;
+  String? _username;
 
   HiveClient? _client;
 
@@ -169,6 +170,9 @@ class HiveServerService extends ChangeNotifier {
 
   /// The underlying HiveClient
   HiveClient? get client => _client;
+
+  /// The authenticated username (available after successful API key validation)
+  String? get username => _username;
 
   /// Load settings from storage
   Future<void> load() async {
@@ -250,11 +254,13 @@ class HiveServerService extends ChangeNotifier {
 
     await _client!.connect();
 
-    // Set API key if available
+    // Set API key and validate to get userId
     if (_hasApiKey) {
       final apiKey = await getApiKey();
       if (apiKey != null) {
         _client!.setApiKey(apiKey);
+        // Validate to get userId for subsequent requests
+        await validateApiKey(apiKey);
       }
     }
 
@@ -266,11 +272,15 @@ class HiveServerService extends ChangeNotifier {
     if (_client != null) {
       await _client!.shutdown();
       _client = null;
+      _username = null;
       notifyListeners();
     }
   }
 
-  /// Validate API key with the server
+  /// Validate API key with the server.
+  ///
+  /// On successful validation, also sets the user ID on the client
+  /// for subsequent authenticated requests.
   Future<bool> validateApiKey(String apiKey) async {
     if (!isConnected) {
       throw StateError('Not connected to server. Call connect first.');
@@ -282,6 +292,16 @@ class HiveServerService extends ChangeNotifier {
         request,
         options: _client!.callOptions,
       );
+
+      if (response.valid && response.userId.isNotEmpty) {
+        debugPrint('[HiveServerService] API key valid, userId: ${response.userId}, username: ${response.username}');
+        _client!.setUserId(response.userId);
+        _username = response.username.isNotEmpty ? response.username : null;
+        notifyListeners();
+      } else {
+        _username = null;
+      }
+
       return response.valid;
     } catch (e) {
       debugPrint('Failed to validate API key: $e');
